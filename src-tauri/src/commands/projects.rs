@@ -6,10 +6,7 @@ use tauri_plugin_store::StoreExt;
 const STORE_PATH: &str = "settings.json";
 const SETTINGS_KEY: &str = "settings";
 
-fn save_settings_internal(
-    app: &tauri::AppHandle,
-    state: &SettingsState,
-) -> Result<(), String> {
+fn save_settings_internal(app: &tauri::AppHandle, state: &SettingsState) -> Result<(), String> {
     let settings = state.0.lock().map_err(|e| e.to_string())?;
     let store = app.store(STORE_PATH).map_err(|e| e.to_string())?;
     store.set(
@@ -36,7 +33,11 @@ pub fn add_project(
         let mut settings = state.0.lock().map_err(|e| e.to_string())?;
 
         // Check if project with same path already exists
-        if settings.projects.iter().any(|p| p.repo_path == project.repo_path) {
+        if settings
+            .projects
+            .iter()
+            .any(|p| p.repo_path == project.repo_path)
+        {
             return Err("Project with this path already exists".to_string());
         }
 
@@ -55,7 +56,11 @@ pub fn update_project(
     {
         let mut settings = state.0.lock().map_err(|e| e.to_string())?;
 
-        if let Some(idx) = settings.projects.iter().position(|p| p.repo_path == repo_path) {
+        if let Some(idx) = settings
+            .projects
+            .iter()
+            .position(|p| p.repo_path == repo_path)
+        {
             settings.projects[idx] = project;
         } else {
             return Err("Project not found".to_string());

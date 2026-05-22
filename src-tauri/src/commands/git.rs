@@ -60,9 +60,9 @@ pub fn get_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
             }
             current_path = Some(line.strip_prefix("worktree ").unwrap().to_string());
         } else if line.starts_with("branch ") {
-            let branch = line.strip_prefix("branch refs/heads/").unwrap_or(
-                line.strip_prefix("branch ").unwrap_or("")
-            );
+            let branch = line
+                .strip_prefix("branch refs/heads/")
+                .unwrap_or(line.strip_prefix("branch ").unwrap_or(""));
             current_branch = Some(branch.to_string());
         } else if line == "bare" {
             is_bare = true;
@@ -91,7 +91,14 @@ pub async fn create_worktree(
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let output = Command::new("git")
-            .args(["worktree", "add", "-b", &branch_name, &worktree_path, &base_branch])
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                &branch_name,
+                &worktree_path,
+                &base_branch,
+            ])
             .current_dir(&repo_path)
             .output()
             .map_err(|e| format!("Failed to run git: {}", e))?;
@@ -182,7 +189,9 @@ pub async fn remove_worktree(
                             .args(["branch", "-D", &branch])
                             .current_dir(&repo_path)
                             .output()
-                            .map_err(|e| format!("Worktree removed but failed to force delete branch: {}", e))?;
+                            .map_err(|e| {
+                                format!("Worktree removed but failed to force delete branch: {}", e)
+                            })?;
 
                         if !output.status.success() {
                             return Err(format!(
@@ -273,7 +282,9 @@ pub fn get_branches(repo_path: String, include_remote: bool) -> Result<Vec<Branc
     let mut branches_vec = Vec::new();
 
     // Get local branches
-    let local_branches = repo.branches(Some(BranchType::Local)).map_err(|e| e.to_string())?;
+    let local_branches = repo
+        .branches(Some(BranchType::Local))
+        .map_err(|e| e.to_string())?;
     for branch_result in local_branches {
         let (branch, _) = branch_result.map_err(|e| e.to_string())?;
         let name = branch.name().map_err(|e| e.to_string())?;
@@ -288,7 +299,9 @@ pub fn get_branches(repo_path: String, include_remote: bool) -> Result<Vec<Branc
 
     // Get remote branches if requested
     if include_remote {
-        let remote_branches = repo.branches(Some(BranchType::Remote)).map_err(|e| e.to_string())?;
+        let remote_branches = repo
+            .branches(Some(BranchType::Remote))
+            .map_err(|e| e.to_string())?;
         for branch_result in remote_branches {
             let (branch, _) = branch_result.map_err(|e| e.to_string())?;
             let name = branch.name().map_err(|e| e.to_string())?;
@@ -439,7 +452,10 @@ pub struct GitHubRemoteInfo {
 }
 
 #[tauri::command]
-pub fn get_github_remote_info(repo_path: String, github_host: Option<String>) -> Result<Option<GitHubRemoteInfo>, String> {
+pub fn get_github_remote_info(
+    repo_path: String,
+    github_host: Option<String>,
+) -> Result<Option<GitHubRemoteInfo>, String> {
     let output = Command::new("git")
         .args(["remote", "get-url", "origin"])
         .current_dir(&repo_path)
@@ -469,7 +485,10 @@ pub fn get_github_remote_info(repo_path: String, github_host: Option<String>) ->
             .and_then(|s| {
                 let parts: Vec<&str> = s.split('/').collect();
                 if parts.len() >= 2 {
-                    Some(GitHubRemoteInfo { owner: parts[0].to_string(), repo: parts[1].to_string() })
+                    Some(GitHubRemoteInfo {
+                        owner: parts[0].to_string(),
+                        repo: parts[1].to_string(),
+                    })
                 } else {
                     None
                 }
@@ -482,7 +501,11 @@ pub fn get_github_remote_info(repo_path: String, github_host: Option<String>) ->
 // ============ IDE/File Operations ============
 
 #[tauri::command]
-pub fn open_ide(path: String, ide_preset: String, custom_command: Option<String>) -> Result<(), String> {
+pub fn open_ide(
+    path: String,
+    ide_preset: String,
+    custom_command: Option<String>,
+) -> Result<(), String> {
     let is_custom = ide_preset == "custom";
     let command = match ide_preset.as_str() {
         "code" => "code",
@@ -491,7 +514,9 @@ pub fn open_ide(path: String, ide_preset: String, custom_command: Option<String>
         "webstorm" => "webstorm",
         "pycharm" => "pycharm",
         "goland" => "goland",
-        "custom" => custom_command.as_deref().ok_or("No custom command provided")?,
+        "custom" => custom_command
+            .as_deref()
+            .ok_or("No custom command provided")?,
         _ => return Err(format!("Unknown IDE preset: {}", ide_preset)),
     };
 
@@ -710,8 +735,8 @@ mod tests {
         assert!(worktrees[0].is_main);
     }
 
-    #[test]
-    fn test_create_and_get_worktree() {
+    #[tokio::test]
+    async fn test_create_and_get_worktree() {
         let (temp_dir, repo_path) = setup_test_repo();
         let worktree_path = temp_dir.path().join("worktrees/feature-test");
 
@@ -722,6 +747,7 @@ mod tests {
             "feature-test".to_string(),
             "main".to_string(),
         )
+        .await
         .expect("Failed to create worktree");
 
         // Verify worktree exists
@@ -733,8 +759,8 @@ mod tests {
         assert!(!feature_wt.unwrap().is_main);
     }
 
-    #[test]
-    fn test_create_worktree_existing_branch() {
+    #[tokio::test]
+    async fn test_create_worktree_existing_branch() {
         let (temp_dir, repo_path) = setup_test_repo();
 
         // Create a branch first
@@ -752,6 +778,7 @@ mod tests {
             worktree_path.to_string_lossy().to_string(),
             "existing-branch".to_string(),
         )
+        .await
         .expect("Failed to create worktree from existing branch");
 
         // Verify
@@ -762,8 +789,8 @@ mod tests {
         assert!(existing_wt.is_some());
     }
 
-    #[test]
-    fn test_remove_worktree() {
+    #[tokio::test]
+    async fn test_remove_worktree() {
         let (temp_dir, repo_path) = setup_test_repo();
         let worktree_path = temp_dir.path().join("worktrees/to-delete");
 
@@ -774,6 +801,7 @@ mod tests {
             "to-delete".to_string(),
             "main".to_string(),
         )
+        .await
         .expect("Failed to create worktree");
 
         // Verify it exists
@@ -788,6 +816,7 @@ mod tests {
             false,
             None,
         )
+        .await
         .expect("Failed to remove worktree");
 
         // Verify it's gone
@@ -795,8 +824,8 @@ mod tests {
         assert_eq!(worktrees.len(), 1);
     }
 
-    #[test]
-    fn test_remove_worktree_force() {
+    #[tokio::test]
+    async fn test_remove_worktree_force() {
         let (temp_dir, repo_path) = setup_test_repo();
         let worktree_path = temp_dir.path().join("worktrees/dirty-wt");
 
@@ -807,10 +836,12 @@ mod tests {
             "dirty-wt".to_string(),
             "main".to_string(),
         )
+        .await
         .expect("Failed to create worktree");
 
         // Make it dirty (uncommitted changes)
-        fs::write(worktree_path.join("dirty.txt"), "uncommitted").expect("Failed to write dirty file");
+        fs::write(worktree_path.join("dirty.txt"), "uncommitted")
+            .expect("Failed to write dirty file");
 
         // Try to remove without force - should fail
         let result = remove_worktree(
@@ -819,7 +850,8 @@ mod tests {
             false,
             false,
             None,
-        );
+        )
+        .await;
         assert!(result.is_err());
 
         // Remove with force - should succeed
@@ -830,6 +862,7 @@ mod tests {
             false,
             None,
         )
+        .await
         .expect("Failed to force remove worktree");
 
         // Verify it's gone
@@ -854,7 +887,8 @@ mod tests {
         let (_temp_dir, repo_path) = setup_test_repo();
 
         // Create untracked file
-        fs::write(Path::new(&repo_path).join("untracked.txt"), "untracked").expect("Failed to write");
+        fs::write(Path::new(&repo_path).join("untracked.txt"), "untracked")
+            .expect("Failed to write");
 
         // Create modified file
         fs::write(Path::new(&repo_path).join("README.md"), "# Modified").expect("Failed to modify");
@@ -885,7 +919,11 @@ mod tests {
         let branches = get_branches(repo_path, false).expect("Failed to get branches");
 
         assert!(branches.len() >= 3); // main + feature-1 + feature-2
-        assert!(branches.iter().any(|b| b.name == "main" || b.name == "master"));
+        assert!(
+            branches
+                .iter()
+                .any(|b| b.name == "main" || b.name == "master")
+        );
         assert!(branches.iter().any(|b| b.name == "feature-1"));
         assert!(branches.iter().any(|b| b.name == "feature-2"));
     }
@@ -902,8 +940,12 @@ mod tests {
             .expect("Failed to create branch");
 
         // Rename it
-        rename_branch(repo_path.clone(), "old-name".to_string(), "new-name".to_string())
-            .expect("Failed to rename branch");
+        rename_branch(
+            repo_path.clone(),
+            "old-name".to_string(),
+            "new-name".to_string(),
+        )
+        .expect("Failed to rename branch");
 
         // Verify
         let branches = get_branches(repo_path, false).expect("Failed to get branches");

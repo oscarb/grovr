@@ -79,9 +79,12 @@ fn store_secret_macos(key: &str, secret: &str) -> Result<(), String> {
     let output = Command::new("security")
         .args([
             "add-generic-password",
-            "-s", SERVICE_NAME,
-            "-a", key,
-            "-w", secret,
+            "-s",
+            SERVICE_NAME,
+            "-a",
+            key,
+            "-w",
+            secret,
             "-U", // Update if exists (though we deleted above)
         ])
         .output()
