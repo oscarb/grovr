@@ -41,6 +41,11 @@ test.describe('Navigation @navigation @critical', () => {
     await githubTab.click()
     await expect(appPage.locator('.settings-content-title')).toHaveText('GitHub')
 
+    // Click GitLab tab
+    const gitlabTab = appPage.locator('.settings-nav-item').filter({ hasText: 'GitLab' })
+    await gitlabTab.click()
+    await expect(appPage.locator('.settings-content-title')).toHaveText('GitLab')
+
     // Click Jira tab
     const jiraTab = appPage.locator('.settings-nav-item').filter({ hasText: 'Jira' })
     await jiraTab.click()

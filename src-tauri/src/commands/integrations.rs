@@ -171,12 +171,9 @@ pub fn remove_gitlab_config(
     save_settings(&app, &settings)
 }
 
-#[tauri::command]
-pub async fn validate_gitlab_token(config: GitLabConfig) -> Result<ValidateResult, String> {
-    let client = Client::new();
-
-    let host_str = config.host.as_deref().unwrap_or("gitlab.com");
-    let base_url = if config.config_type == "enterprise" {
+fn get_gitlab_base_url(config_type: &str, host: Option<&str>) -> String {
+    let host_str = host.unwrap_or("gitlab.com");
+    if config_type == "enterprise" {
         if host_str.starts_with("http://") || host_str.starts_with("https://") {
             host_str.to_string()
         } else {
@@ -184,7 +181,14 @@ pub async fn validate_gitlab_token(config: GitLabConfig) -> Result<ValidateResul
         }
     } else {
         "https://gitlab.com".to_string()
-    };
+    }
+}
+
+#[tauri::command]
+pub async fn validate_gitlab_token(config: GitLabConfig) -> Result<ValidateResult, String> {
+    let client = Client::new();
+
+    let base_url = get_gitlab_base_url(&config.config_type, config.host.as_deref());
 
     let response = client
         .get(format!("{}/api/v4/user", base_url))
@@ -445,7 +449,7 @@ pub async fn fetch_pull_requests(
 
 #[tauri::command]
 pub async fn fetch_gitlab_merge_requests(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: State<'_, SettingsState>,
     owner: String,
     repo: String,
@@ -457,16 +461,7 @@ pub async fn fetch_gitlab_merge_requests(
         let meta = settings.gitlab_configs.first()
             .ok_or("No GitLab config found")?;
 
-        let host_str = meta.host.as_deref().unwrap_or("gitlab.com");
-        let base_url = if meta.config_type == "enterprise" {
-            if host_str.starts_with("http://") || host_str.starts_with("https://") {
-                host_str.to_string()
-            } else {
-                format!("https://{}", host_str)
-            }
-        } else {
-            "https://gitlab.com".to_string()
-        };
+        let base_url = get_gitlab_base_url(&meta.config_type, meta.host.as_deref());
 
         // Get token from secure storage
         let token_key = secure_store::gitlab_token_key(&meta.id);
@@ -688,4 +683,27 @@ fn save_settings(app: &tauri::AppHandle, settings: &crate::types::AppSettings) -
     );
     store.save().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_gitlab_base_url() {
+        // Personal config type
+        assert_eq!(get_gitlab_base_url("personal", None), "https://gitlab.com");
+        assert_eq!(get_gitlab_base_url("personal", Some("gitlab.example.com")), "https://gitlab.com");
+
+        // Enterprise config type without HTTP protocol prefix
+        assert_eq!(get_gitlab_base_url("enterprise", Some("gitlab.example.com")), "https://gitlab.example.com");
+        assert_eq!(get_gitlab_base_url("enterprise", Some("my-gitlab.org:8080")), "https://my-gitlab.org:8080");
+
+        // Enterprise config type with HTTP protocol prefix
+        assert_eq!(get_gitlab_base_url("enterprise", Some("https://gitlab.example.com")), "https://gitlab.example.com");
+        assert_eq!(get_gitlab_base_url("enterprise", Some("http://gitlab.example.com")), "http://gitlab.example.com");
+
+        // Enterprise config type with None host (fallback)
+        assert_eq!(get_gitlab_base_url("enterprise", None), "https://gitlab.com");
+    }
 }
