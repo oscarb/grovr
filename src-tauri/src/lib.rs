@@ -1,7 +1,7 @@
 use tauri::Manager;
 
 #[cfg(target_os = "macos")]
-use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+use window_vibrancy::{NSVisualEffectMaterial, apply_vibrancy};
 
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_mica;
@@ -10,25 +10,28 @@ mod commands;
 mod secure_store;
 mod types;
 
+use commands::clipboard::read_clipboard_text;
+use commands::git::{
+    copy_paths_to_worktree, create_worktree, create_worktree_existing_branch, delete_branch,
+    get_branches, get_current_branch, get_default_branch, get_github_remote_info,
+    get_worktree_status, get_worktrees, git_fetch, git_pull, open_ide, open_in_finder,
+    open_terminal, prune_worktrees, remove_worktree, rename_branch,
+};
+use commands::integrations::{
+    fetch_jira_issue, fetch_linear_issue, fetch_pull_requests, get_github_config, get_jira_config,
+    get_linear_config, remove_github_config, remove_jira_config, remove_linear_config,
+    set_github_config, set_jira_config, set_linear_config, validate_github_token,
+    validate_jira_credentials, validate_linear_token,
+};
+use commands::projects::{
+    add_project, get_projects, remove_project, reorder_projects, update_project,
+};
 use commands::settings::{
     get_settings, get_worktree_memo, init_settings, register_global_shortcut,
     set_clipboard_parse_patterns, set_copy_paths, set_default_worktree_template,
     set_fetch_before_create, set_global_shortcut, set_ide, set_last_used_project,
     set_launch_at_startup, set_onboarding_completed, set_refresh_interval_minutes,
     set_skip_open_ide_confirm, set_theme, set_worktree_memo,
-};
-use commands::projects::{add_project, get_projects, remove_project, reorder_projects, update_project};
-use commands::git::{
-    get_worktrees, create_worktree, create_worktree_existing_branch, remove_worktree,
-    prune_worktrees, get_worktree_status, get_branches, get_current_branch, get_default_branch,
-    delete_branch, rename_branch, git_fetch, git_pull, get_github_remote_info, open_ide,
-    open_in_finder, open_terminal, copy_paths_to_worktree,
-};
-use commands::clipboard::read_clipboard_text;
-use commands::integrations::{
-    get_github_config, set_github_config, remove_github_config, validate_github_token,
-    get_jira_config, set_jira_config, remove_jira_config, validate_jira_credentials,
-    fetch_pull_requests, fetch_jira_issue,
 };
 
 fn setup_window_effects(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -158,6 +161,12 @@ pub fn run() {
             remove_jira_config,
             validate_jira_credentials,
             fetch_jira_issue,
+            // Integrations - Linear
+            get_linear_config,
+            set_linear_config,
+            remove_linear_config,
+            validate_linear_token,
+            fetch_linear_issue,
             // Clipboard
             read_clipboard_text,
         ])

@@ -1,10 +1,10 @@
 use crate::types::{AppSettings, IdeConfig, WorktreeMemo};
+use std::sync::Mutex;
 use tauri::{Manager, State};
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_store::StoreExt;
-use std::sync::Mutex;
 
 const STORE_PATH: &str = "settings.json";
 const SETTINGS_KEY: &str = "settings";
@@ -190,7 +190,11 @@ pub fn get_worktree_memo(
     path: String,
 ) -> Result<WorktreeMemo, String> {
     let settings = state.0.lock().map_err(|e| e.to_string())?;
-    Ok(settings.worktree_memos.get(&path).cloned().unwrap_or_default())
+    Ok(settings
+        .worktree_memos
+        .get(&path)
+        .cloned()
+        .unwrap_or_default())
 }
 
 #[tauri::command]

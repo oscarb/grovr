@@ -79,9 +79,12 @@ fn store_secret_macos(key: &str, secret: &str) -> Result<(), String> {
     let output = Command::new("security")
         .args([
             "add-generic-password",
-            "-s", SERVICE_NAME,
-            "-a", key,
-            "-w", secret,
+            "-s",
+            SERVICE_NAME,
+            "-a",
+            key,
+            "-w",
+            secret,
             "-U", // Update if exists (though we deleted above)
         ])
         .output()
@@ -137,4 +140,8 @@ pub fn github_token_key(id: &str) -> String {
 
 pub fn jira_token_key(host: &str) -> String {
     format!("jira-token-{}", host)
+}
+
+pub fn linear_token_key(email: &str) -> String {
+    format!("linear-token-{}", email)
 }

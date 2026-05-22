@@ -110,7 +110,11 @@ cmd_start() {
     # 1. Install dependencies
     print_status "[1/4] Installing dependencies..."
     cd "$PROJECT_ROOT"
-    pnpm install > /dev/null 2>&1
+    if command -v pnpm &> /dev/null; then
+        pnpm install > /dev/null 2>&1
+    else
+        npm install > /dev/null 2>&1
+    fi
 
     # 2. Setup isolated environment
     print_status "[2/4] Setting up isolated environment..."
@@ -138,13 +142,15 @@ cmd_start() {
     export VITE_PREVIEW_WORKTREE="$WORKTREE_NAME"
 
     # Start tauri dev with custom devUrl and unique identifier for data isolation
-    TAURI_CONFIG="{\"identifier\":\"${TAURI_IDENTIFIER}\",\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\"}}"
-    pnpm tauri dev --config "$TAURI_CONFIG" > "$LOG_FILE" 2>&1 &
+    if command -v pnpm &> /dev/null; then
+        TAURI_CONFIG="{\"identifier\":\"${TAURI_IDENTIFIER}\",\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\"}}"
+        pnpm tauri dev --config "$TAURI_CONFIG" > "$LOG_FILE" 2>&1 &
+    else
+        TAURI_CONFIG="{\"identifier\":\"${TAURI_IDENTIFIER}\",\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\",\"beforeDevCommand\":\"npm run dev\",\"beforeBuildCommand\":\"npm run build\"}}"
+        npx tauri dev --config "$TAURI_CONFIG" > "$LOG_FILE" 2>&1 &
+    fi
     local tauri_pid=$!
     echo "$tauri_pid" > "$PID_FILE"
-
-    # Start monitor in background
-    (monitor_and_cleanup "$tauri_pid") &
 
     # Wait for Vite to start (check if port is listening)
     print_status "Waiting for dev server to start..."
@@ -190,6 +196,8 @@ cmd_start() {
     if is_running; then
         echo ""
         print_success "Preview started successfully!"
+        # Start monitor in background
+        (monitor_and_cleanup "$tauri_pid") &
         echo ""
         echo "  Window title: Grovr (${WORKTREE_NAME})"
         echo "  Dev server:   http://localhost:${VITE_PORT}"
@@ -201,12 +209,15 @@ cmd_start() {
     else
         # Failed to start - cleanup and retry once
         if [ "${PREVIEW_RETRY:-0}" -eq 0 ]; then
-            print_warning "Failed to start preview. Cleaning up and retrying..."
+            print_warning "Failed to start preview. Logs:"
+            cat "$LOG_FILE" || true
+            print_warning "Cleaning up and retrying..."
             cleanup
             export PREVIEW_RETRY=1
             cmd_start
         else
-            print_error "Failed to start preview after retry. Check log: $LOG_FILE"
+            print_error "Failed to start preview after retry. Logs:"
+            cat "$LOG_FILE" || true
             cleanup
             exit 1
         fi

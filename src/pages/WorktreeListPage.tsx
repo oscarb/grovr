@@ -59,7 +59,7 @@ import * as api from '@/lib/api';
 import { UpdateBadge } from '@/components/ui/update-badge';
 import type { UpdateInfo } from '@/lib/updater';
 import type { Project, Worktree, IDEPreset } from '@/types';
-import type { PullRequestInfo, JiraIssueInfo } from '@/lib/api';
+import type { PullRequestInfo, JiraIssueInfo, LinearIssueInfo } from '@/lib/api';
 
 interface WorktreeListPageProps {
   onOpenSettings: () => void;
@@ -73,10 +73,11 @@ interface WorktreeListPageProps {
   onShowUpdate: () => void;
 }
 
-// Extended worktree with PR and Jira info
+// Extended worktree with PR, Jira and Linear info
 interface WorktreeWithIntegrations extends Worktree {
   prInfo?: PullRequestInfo;
   jiraInfo?: JiraIssueInfo;
+  linearInfo?: LinearIssueInfo;
 }
 
 interface ProjectWithIntegrations extends Omit<Project, 'worktrees'> {
@@ -101,6 +102,7 @@ export function WorktreeListPage({
   const [hasGitHub, setHasGitHub] = useState(false);
   const [hasJira, setHasJira] = useState(false);
   const [jiraHost, setJiraHost] = useState<string | null>(null);
+  const [hasLinear, setHasLinear] = useState(false);
 
   // IDE confirmation modal state
   const [ideModalOpen, setIdeModalOpen] = useState(false);
@@ -320,7 +322,8 @@ export function WorktreeListPage({
   const loadIntegrationData = useCallback(async (
     projectsWithWorktrees: ProjectWithIntegrations[],
     githubConfig: { id?: string; host?: string } | null,
-    jiraConfig: { host?: string; email?: string } | null
+    jiraConfig: { host?: string; email?: string } | null,
+    linearConfig: { email?: string } | null
   ) => {
     for (const project of projectsWithWorktrees) {
       const remoteInfo = await api.getGitHubRemoteInfo(project.repoPath, githubConfig?.host).catch(() => null);
@@ -338,6 +341,21 @@ export function WorktreeListPage({
             })
             .catch(err => {
               console.error('[Jira Debug] Failed to fetch Jira issue:', worktree.issueNumber, err);
+            });
+        }
+
+        // Load Linear info if configured and issue number exists
+        if (linearConfig?.email && worktree.issueNumber) {
+          console.log('[Linear Debug] Fetching issue:', worktree.issueNumber);
+          api.fetchLinearIssue(worktree.issueNumber)
+            .then(linearInfo => {
+              console.log('[Linear Debug] Result for', worktree.issueNumber, ':', linearInfo);
+              if (linearInfo) {
+                updateWorktree(project.repoPath, worktree.path, { linearInfo });
+              }
+            })
+            .catch(err => {
+              console.error('[Linear Debug] Failed to fetch Linear issue:', worktree.issueNumber, err);
             });
         }
 
@@ -360,17 +378,19 @@ export function WorktreeListPage({
   const loadData = async () => {
     try {
       setLoading(true);
-      const [settingsData, projectsData, githubConfig, jiraConfig] = await Promise.all([
+      const [settingsData, projectsData, githubConfig, jiraConfig, linearConfig] = await Promise.all([
         api.getSettings(),
         api.getProjects(),
         api.getGitHubConfig().catch(() => null),
         api.getJiraConfig().catch(() => null),
+        api.getLinearConfig().catch(() => null),
       ]);
       setSettings(settingsData);
       // Check if integrations are configured (by metadata presence, not token)
       setHasGitHub(!!githubConfig?.id);
       setHasJira(!!jiraConfig?.host);
       setJiraHost(jiraConfig?.host || null);
+      setHasLinear(!!linearConfig?.email);
 
       // Load worktrees with memos only (local data - fast)
       const projectsWithWorktrees: ProjectWithIntegrations[] = await Promise.all(
@@ -406,6 +426,18 @@ export function WorktreeListPage({
                     }
                   } catch {
                     // Ignore - Jira fetch failed
+                  }
+                }
+
+                // Load Linear info if configured and issue number exists
+                if (linearConfig?.email && result.issueNumber) {
+                  try {
+                    const linearInfo = await api.fetchLinearIssue(result.issueNumber);
+                    if (linearInfo) {
+                      result.linearInfo = linearInfo;
+                    }
+                  } catch {
+                    // Ignore - Linear fetch failed
                   }
                 }
 
@@ -455,7 +487,7 @@ export function WorktreeListPage({
       setLoading(false);
 
       // Load integration data in background (non-blocking)
-      loadIntegrationData(projectsWithWorktrees, githubConfig, jiraConfig);
+      loadIntegrationData(projectsWithWorktrees, githubConfig, jiraConfig, linearConfig);
     } catch (err) {
       console.error('Failed to load data:', err);
       setLoading(false);
@@ -612,6 +644,7 @@ export function WorktreeListPage({
   // Only show integration columns if there's actual fetched data
   const hasAnyGitHub = hasGitHub && allWorktrees.some((w) => w.prInfo);
   const hasAnyJira = hasJira && allWorktrees.some((w) => w.jiraInfo || w.issueNumber);
+  const hasAnyLinear = hasLinear && allWorktrees.some((w) => w.linearInfo || w.issueNumber);
 
   return (
     <div className="h-full flex flex-col">
@@ -702,6 +735,7 @@ export function WorktreeListPage({
                   showDescription={hasAnyDescription}
                   showGitHub={hasAnyGitHub}
                   showJira={hasAnyJira}
+                  showLinear={hasAnyLinear}
                   jiraHost={jiraHost}
                   selectedPath={selectedPath}
                   searchQuery={searchQuery}
@@ -837,6 +871,7 @@ interface ProjectCardProps {
   showDescription: boolean;
   showGitHub: boolean;
   showJira: boolean;
+  showLinear: boolean;
   selectedPath: string | null;
   searchQuery: string;
 }
@@ -882,6 +917,7 @@ function ProjectCard({
   showDescription,
   showGitHub,
   showJira,
+  showLinear,
   jiraHost,
   selectedPath,
   searchQuery,
@@ -957,6 +993,7 @@ function ProjectCard({
               showDescription ? 'minmax(0, 1fr)' : null,
               showGitHub ? '80px' : null,
               showJira ? '80px' : null,
+              showLinear ? '80px' : null,
               '44px',
             ].filter(Boolean).join(' '),
           }}
@@ -978,6 +1015,7 @@ function ProjectCard({
                 showDescription={showDescription}
                 showGitHub={showGitHub}
                 showJira={showJira}
+                showLinear={showLinear}
                 jiraHost={jiraHost}
                 isSelected={selectedPath === worktree.path}
               />
@@ -999,6 +1037,7 @@ interface WorktreeRowProps {
   showDescription: boolean;
   showGitHub: boolean;
   showJira: boolean;
+  showLinear: boolean;
   jiraHost: string | null;
   isSelected: boolean;
 }
@@ -1013,6 +1052,7 @@ function WorktreeRow({
   showDescription,
   showGitHub,
   showJira,
+  showLinear,
   jiraHost,
   isSelected,
 }: WorktreeRowProps) {
@@ -1096,6 +1136,22 @@ function WorktreeRow({
     }
   };
 
+  const getLinearStatusClass = (statusType: string) => {
+    switch (statusType) {
+      case 'completed':
+        return 'status-done';
+      case 'started':
+        return 'status-in-progress';
+      case 'unstarted':
+      case 'backlog':
+        return 'status-todo';
+      case 'canceled':
+        return 'status-closed';
+      default:
+        return 'status-todo';
+    }
+  };
+
   return (
     <div
       className={`worktree-row ${isSelected ? 'worktree-row-selected' : ''}`}
@@ -1153,6 +1209,28 @@ function WorktreeRow({
               <CircleDot size={10} className="badge-icon" />
               <span className="badge-text">
                 {worktree.jiraInfo?.key || worktree.issueNumber}
+              </span>
+              <ExternalLink size={8} className="badge-external" />
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {/* Linear Status - badge style */}
+      {showLinear && (
+        <div className="worktree-col-linear">
+          {worktree.issueNumber ? (
+            <button
+              className={`integration-badge-link ${worktree.linearInfo ? getLinearStatusClass(worktree.linearInfo.status_type) : 'status-link-only'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                const url = worktree.linearInfo?.url || `https://linear.app/issue/${worktree.issueNumber}`;
+                openUrl(url);
+              }}
+            >
+              <CircleDot size={10} className="badge-icon" />
+              <span className="badge-text">
+                {worktree.linearInfo?.key || worktree.issueNumber}
               </span>
               <ExternalLink size={8} className="badge-external" />
             </button>

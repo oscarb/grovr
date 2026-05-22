@@ -1,7 +1,9 @@
 use crate::commands::settings::SettingsState;
 use crate::secure_store;
-use crate::types::{GitHubConfig, GitHubConfigMeta, JiraConfig, JiraConfigMeta};
-use base64::{engine::general_purpose::STANDARD, Engine};
+use crate::types::{
+    GitHubConfig, GitHubConfigMeta, JiraConfig, JiraConfigMeta, LinearConfig, LinearConfigMeta,
+};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,7 +14,11 @@ const STORE_PATH: &str = "settings.json";
 const SETTINGS_KEY: &str = "settings";
 
 // Helper to migrate tokens from old settings.json format to keychain
-fn migrate_token_if_needed(app: &tauri::AppHandle, key: &str, token_getter: impl Fn(&Value) -> Option<String>) {
+fn migrate_token_if_needed(
+    app: &tauri::AppHandle,
+    key: &str,
+    token_getter: impl Fn(&Value) -> Option<String>,
+) {
     // Check if token already exists in keychain
     if let Ok(Some(_)) = secure_store::get_secret(key) {
         return; // Already migrated
@@ -40,9 +46,7 @@ pub struct ValidateResult {
 // ============ GitHub Commands ============
 
 #[tauri::command]
-pub fn get_github_config(
-    state: State<SettingsState>,
-) -> Result<Option<GitHubConfigMeta>, String> {
+pub fn get_github_config(state: State<SettingsState>) -> Result<Option<GitHubConfigMeta>, String> {
     let settings = state.0.lock().map_err(|e| e.to_string())?;
     Ok(settings.github_configs.first().cloned())
 }
@@ -86,7 +90,10 @@ pub async fn validate_github_token(config: GitHubConfig) -> Result<ValidateResul
     let client = Client::new();
 
     let base_url = if config.config_type == "enterprise" {
-        format!("https://{}/api/v3", config.host.as_deref().unwrap_or("github.com"))
+        format!(
+            "https://{}/api/v3",
+            config.host.as_deref().unwrap_or("github.com")
+        )
     } else {
         "https://api.github.com".to_string()
     };
@@ -130,9 +137,7 @@ pub async fn validate_github_token(config: GitHubConfig) -> Result<ValidateResul
 // ============ Jira Commands ============
 
 #[tauri::command]
-pub fn get_jira_config(
-    state: State<SettingsState>,
-) -> Result<Option<JiraConfigMeta>, String> {
+pub fn get_jira_config(state: State<SettingsState>) -> Result<Option<JiraConfigMeta>, String> {
     let settings = state.0.lock().map_err(|e| e.to_string())?;
     let meta = settings.jira_configs.first().cloned();
 
@@ -156,14 +161,22 @@ pub fn set_jira_config(
     state: State<SettingsState>,
     config: JiraConfig,
 ) -> Result<(), String> {
-    eprintln!("[Jira] set_jira_config called - host: {}, email: {:?}, has_token: {}",
-        config.host, config.email, config.api_token.is_some());
+    eprintln!(
+        "[Jira] set_jira_config called - host: {}, email: {:?}, has_token: {}",
+        config.host,
+        config.email,
+        config.api_token.is_some()
+    );
 
     // Store token in secure storage if provided
     if let Some(ref token) = config.api_token {
         if !token.is_empty() {
             let token_key = secure_store::jira_token_key(&config.host);
-            eprintln!("[Jira] Storing token with key: {}, token_len: {}", token_key, token.len());
+            eprintln!(
+                "[Jira] Storing token with key: {}, token_len: {}",
+                token_key,
+                token.len()
+            );
             match secure_store::store_secret(&token_key, token) {
                 Ok(()) => eprintln!("[Jira] Token stored successfully"),
                 Err(e) => {
@@ -204,9 +217,15 @@ pub fn remove_jira_config(
 
 #[tauri::command]
 pub async fn validate_jira_credentials(config: JiraConfig) -> Result<ValidateResult, String> {
-    let email = config.email.as_ref().filter(|e| !e.is_empty())
+    let email = config
+        .email
+        .as_ref()
+        .filter(|e| !e.is_empty())
         .ok_or("Email is required for validation")?;
-    let api_token = config.api_token.as_ref().filter(|t| !t.is_empty())
+    let api_token = config
+        .api_token
+        .as_ref()
+        .filter(|t| !t.is_empty())
         .ok_or("API token is required for validation")?;
 
     let client = Client::new();
@@ -275,11 +294,16 @@ pub async fn fetch_pull_requests(
     // Extract config data before await to avoid holding MutexGuard across await
     let (base_url, token) = {
         let settings = state.0.lock().map_err(|e| e.to_string())?;
-        let meta = settings.github_configs.first()
+        let meta = settings
+            .github_configs
+            .first()
             .ok_or("No GitHub config found")?;
 
         let base_url = if meta.config_type == "enterprise" {
-            format!("https://{}/api/v3", meta.host.as_deref().unwrap_or("github.com"))
+            format!(
+                "https://{}/api/v3",
+                meta.host.as_deref().unwrap_or("github.com")
+            )
         } else {
             "https://api.github.com".to_string()
         };
@@ -291,14 +315,20 @@ pub async fn fetch_pull_requests(
             settings_value
                 .get("github_configs")
                 .and_then(|arr| arr.as_array())
-                .and_then(|arr| arr.iter().find(|c| c.get("id").and_then(|v| v.as_str()) == Some(meta_id.as_str())))
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|c| c.get("id").and_then(|v| v.as_str()) == Some(meta_id.as_str()))
+                })
                 .and_then(|c| c.get("token"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         });
         let token = secure_store::get_secret(&token_key)?.unwrap_or_default();
         if token.is_empty() {
-            eprintln!("[GitHub] Warning: No token found in secure storage for key: {}", token_key);
+            eprintln!(
+                "[GitHub] Warning: No token found in secure storage for key: {}",
+                token_key
+            );
         }
         (base_url, token)
     };
@@ -337,16 +367,19 @@ pub async fn fetch_pull_requests(
 
     let prs: Vec<GitHubPR> = response.json().await.map_err(|e| e.to_string())?;
 
-    Ok(prs.into_iter().map(|pr| PullRequestInfo {
-        number: pr.number,
-        title: pr.title,
-        state: pr.state,
-        merged: pr.merged_at.is_some(),
-        draft: pr.draft,
-        url: pr.html_url,
-        review_decision: None,
-        checks_status: None,
-    }).collect())
+    Ok(prs
+        .into_iter()
+        .map(|pr| PullRequestInfo {
+            number: pr.number,
+            title: pr.title,
+            state: pr.state,
+            merged: pr.merged_at.is_some(),
+            draft: pr.draft,
+            url: pr.html_url,
+            review_decision: None,
+            checks_status: None,
+        })
+        .collect())
 }
 
 // ============ Jira Data Fetching ============
@@ -379,7 +412,10 @@ pub async fn fetch_jira_issue(
             }
         };
 
-        eprintln!("[Jira] Config found - host: {}, email: {:?}", meta.host, meta.email);
+        eprintln!(
+            "[Jira] Config found - host: {}, email: {:?}",
+            meta.host, meta.email
+        );
 
         // Check if email is configured - if not, skip API call (links-only mode)
         let email = match &meta.email {
@@ -399,7 +435,11 @@ pub async fn fetch_jira_issue(
             settings_value
                 .get("jira_configs")
                 .and_then(|arr| arr.as_array())
-                .and_then(|arr| arr.iter().find(|c| c.get("host").and_then(|v| v.as_str()) == Some(meta_host.as_str())))
+                .and_then(|arr| {
+                    arr.iter().find(|c| {
+                        c.get("host").and_then(|v| v.as_str()) == Some(meta_host.as_str())
+                    })
+                })
                 .and_then(|c| c.get("api_token"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
@@ -428,7 +468,10 @@ pub async fn fetch_jira_issue(
 
         let auth = STANDARD.encode(format!("{}:{}", email, api_token));
         let base_url = format!("https://{}/rest/api/3", meta.host);
-        eprintln!("[Jira] Making API call to: {}/issue/{}", base_url, issue_key);
+        eprintln!(
+            "[Jira] Making API call to: {}/issue/{}",
+            base_url, issue_key
+        );
         (auth, base_url, meta.host.clone())
     };
 
@@ -488,7 +531,10 @@ pub async fn fetch_jira_issue(
 }
 
 // Helper to save settings
-fn save_settings(app: &tauri::AppHandle, settings: &crate::types::AppSettings) -> Result<(), String> {
+fn save_settings(
+    app: &tauri::AppHandle,
+    settings: &crate::types::AppSettings,
+) -> Result<(), String> {
     let store = app.store(STORE_PATH).map_err(|e| e.to_string())?;
     store.set(
         SETTINGS_KEY,
@@ -496,4 +542,324 @@ fn save_settings(app: &tauri::AppHandle, settings: &crate::types::AppSettings) -
     );
     store.save().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ============ Linear Commands ============
+
+#[tauri::command]
+pub fn get_linear_config(state: State<SettingsState>) -> Result<Option<LinearConfigMeta>, String> {
+    let settings = state.0.lock().map_err(|e| e.to_string())?;
+    let meta = settings.linear_configs.first().cloned();
+
+    if let Some(mut m) = meta {
+        let token_key = secure_store::linear_token_key(&m.email);
+        m.has_token = secure_store::get_secret(&token_key)
+            .ok()
+            .flatten()
+            .map(|t| !t.is_empty())
+            .unwrap_or(false);
+        Ok(Some(m))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn set_linear_config(
+    app: tauri::AppHandle,
+    state: State<SettingsState>,
+    config: LinearConfig,
+) -> Result<(), String> {
+    eprintln!(
+        "[Linear] set_linear_config called - email: {}, has_token: {}",
+        config.email,
+        config.token.is_some()
+    );
+
+    if let Some(ref token) = config.token {
+        if !token.is_empty() {
+            let token_key = secure_store::linear_token_key(&config.email);
+            eprintln!(
+                "[Linear] Storing token for key: {}, token_len: {}",
+                token_key,
+                token.len()
+            );
+            match secure_store::store_secret(&token_key, token) {
+                Ok(()) => eprintln!("[Linear] Token stored successfully"),
+                Err(e) => {
+                    eprintln!("[Linear] Failed to store token: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    let mut settings = state.0.lock().map_err(|e| e.to_string())?;
+    let meta: LinearConfigMeta = (&config).into();
+    settings.linear_configs = vec![meta];
+    save_settings(&app, &settings)
+}
+
+#[tauri::command]
+pub fn remove_linear_config(
+    app: tauri::AppHandle,
+    state: State<SettingsState>,
+) -> Result<(), String> {
+    let mut settings = state.0.lock().map_err(|e| e.to_string())?;
+
+    for meta in &settings.linear_configs {
+        let token_key = secure_store::linear_token_key(&meta.email);
+        let _ = secure_store::delete_secret(&token_key);
+    }
+
+    settings.linear_configs.clear();
+    save_settings(&app, &settings)
+}
+
+pub fn build_linear_auth_header(token: &str) -> String {
+    if token.starts_with("lin_api_") {
+        token.to_string()
+    } else if token.starts_with("Bearer ") {
+        token.to_string()
+    } else {
+        format!("Bearer {}", token)
+    }
+}
+
+#[tauri::command]
+pub async fn validate_linear_token(token: String) -> Result<ValidateResult, String> {
+    let client = Client::new();
+
+    let auth_header = build_linear_auth_header(&token);
+
+    let query = serde_json::json!({
+        "query": "query { viewer { name email } }"
+    });
+
+    let response = client
+        .post("https://api.linear.app/graphql")
+        .header("Authorization", auth_header)
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Grovr-Desktop")
+        .json(&query)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if response.status().is_success() {
+        #[derive(Deserialize)]
+        struct LinearViewerResponse {
+            data: Option<LinearViewerData>,
+            errors: Option<Vec<LinearGraphQLError>>,
+        }
+        #[derive(Deserialize)]
+        struct LinearViewerData {
+            viewer: Option<LinearViewer>,
+        }
+        #[derive(Deserialize)]
+        struct LinearViewer {
+            name: String,
+            email: String,
+        }
+        #[derive(Deserialize)]
+        struct LinearGraphQLError {
+            message: String,
+        }
+
+        let body = response.text().await.map_err(|e| e.to_string())?;
+        let res: LinearViewerResponse = serde_json::from_str(&body)
+            .map_err(|e| format!("Failed to parse response: {}. Body: {}", e, body))?;
+
+        if let Some(errors) = res.errors {
+            if !errors.is_empty() {
+                return Ok(ValidateResult {
+                    valid: false,
+                    username: None,
+                    error: Some(errors[0].message.clone()),
+                });
+            }
+        }
+
+        if let Some(data) = res.data {
+            if let Some(viewer) = data.viewer {
+                return Ok(ValidateResult {
+                    valid: true,
+                    username: Some(format!("{} ({})", viewer.name, viewer.email)),
+                    error: None,
+                });
+            }
+        }
+
+        Ok(ValidateResult {
+            valid: false,
+            username: None,
+            error: Some("No viewer data returned".to_string()),
+        })
+    } else {
+        let status = response.status().as_u16();
+        let error = match status {
+            401 => "Invalid API key".to_string(),
+            403 => "Access denied".to_string(),
+            _ => format!("Linear API error: {}", status),
+        };
+        Ok(ValidateResult {
+            valid: false,
+            username: None,
+            error: Some(error),
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinearIssueInfo {
+    pub key: String,
+    pub title: String,
+    pub status: String,
+    pub status_type: String,
+    pub url: String,
+}
+
+#[tauri::command]
+pub async fn fetch_linear_issue(
+    state: State<'_, SettingsState>,
+    issue_key: String,
+) -> Result<Option<LinearIssueInfo>, String> {
+    eprintln!("[Linear] fetch_linear_issue called for: {}", issue_key);
+
+    let (auth_header, has_config) = {
+        let settings = state.0.lock().map_err(|e| e.to_string())?;
+        let meta = match settings.linear_configs.first() {
+            Some(m) => m,
+            None => {
+                eprintln!("[Linear] No config found");
+                return Ok(None);
+            }
+        };
+
+        let token_key = secure_store::linear_token_key(&meta.email);
+        let api_token = match secure_store::get_secret(&token_key) {
+            Ok(Some(t)) if !t.is_empty() => t,
+            _ => {
+                eprintln!("[Linear] No token found in secure storage");
+                return Ok(None);
+            }
+        };
+
+        let auth_header = build_linear_auth_header(&api_token);
+
+        (auth_header, true)
+    };
+
+    if !has_config {
+        return Ok(None);
+    }
+
+    let client = Client::new();
+    let query = serde_json::json!({
+        "query": "query($id: String!) { issue(id: $id) { identifier title url state { name type } } }",
+        "variables": { "id": issue_key }
+    });
+
+    let response = client
+        .post("https://api.linear.app/graphql")
+        .header("Authorization", auth_header)
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Grovr-Desktop")
+        .json(&query)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        eprintln!("[Linear] API error ({}): {}", status, body);
+        return Err(format!("Linear API error ({}): {}", status, body));
+    }
+
+    #[derive(Deserialize)]
+    struct LinearIssueResponse {
+        data: Option<LinearIssueData>,
+        errors: Option<Vec<LinearGraphQLError>>,
+    }
+    #[derive(Deserialize)]
+    struct LinearIssueData {
+        issue: Option<LinearIssue>,
+    }
+    #[derive(Deserialize)]
+    struct LinearIssue {
+        identifier: String,
+        title: String,
+        url: String,
+        state: LinearIssueState,
+    }
+    #[derive(Deserialize)]
+    struct LinearIssueState {
+        name: String,
+        #[serde(rename = "type")]
+        state_type: String,
+    }
+    #[derive(Deserialize)]
+    struct LinearGraphQLError {
+        message: String,
+    }
+
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    let res: LinearIssueResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse response: {}. Body: {}", e, body))?;
+
+    if let Some(errors) = res.errors {
+        if !errors.is_empty() {
+            eprintln!("[Linear] GraphQL error: {}", errors[0].message);
+            return Err(errors[0].message.clone());
+        }
+    }
+
+    if let Some(data) = res.data {
+        if let Some(issue) = data.issue {
+            return Ok(Some(LinearIssueInfo {
+                key: issue.identifier,
+                title: issue.title,
+                status: issue.state.name,
+                status_type: issue.state.state_type,
+                url: issue.url,
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_linear_auth_header() {
+        // Standard personal token
+        assert_eq!(
+            build_linear_auth_header("lin_api_test_123"),
+            "lin_api_test_123"
+        );
+        // Token already prefixed with Bearer
+        assert_eq!(
+            build_linear_auth_header("Bearer some_token"),
+            "Bearer some_token"
+        );
+        // Plain OAuth / other token
+        assert_eq!(build_linear_auth_header("some_token"), "Bearer some_token");
+    }
+
+    #[test]
+    fn test_linear_config_meta_from_config() {
+        let config = LinearConfig {
+            email: "test@grovr.local".to_string(),
+            token: Some("my_secret_token".to_string()),
+            display_name: Some("Test User".to_string()),
+        };
+        let meta = LinearConfigMeta::from(&config);
+        assert_eq!(meta.email, "test@grovr.local");
+        assert_eq!(meta.display_name, Some("Test User".to_string()));
+        assert_eq!(meta.has_token, false);
+    }
 }
