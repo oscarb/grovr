@@ -147,10 +147,11 @@ cmd_start() {
     export VITE_PREVIEW_WORKTREE="$WORKTREE_NAME"
 
     # Start tauri dev with custom devUrl and unique identifier for data isolation
-    TAURI_CONFIG="{\"identifier\":\"${TAURI_IDENTIFIER}\",\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\"}}"
     if command -v pnpm &> /dev/null; then
+        TAURI_CONFIG="{\"identifier\":\"${TAURI_IDENTIFIER}\",\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\"}}"
         pnpm tauri dev --config "$TAURI_CONFIG" > "$LOG_FILE" 2>&1 &
     else
+        TAURI_CONFIG="{\"identifier\":\"${TAURI_IDENTIFIER}\",\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\",\"beforeDevCommand\":\"npm run dev -- --port ${VITE_PORT}\"}}"
         npx tauri dev --config "$TAURI_CONFIG" > "$LOG_FILE" 2>&1 &
     fi
     local tauri_pid=$!
