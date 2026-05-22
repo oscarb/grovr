@@ -50,6 +50,36 @@ impl From<&GitHubConfig> for GitHubConfigMeta {
 
 // Full config sent from frontend (includes token)
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GitLabConfig {
+    pub id: String,
+    pub name: String,
+    pub config_type: String,
+    pub host: Option<String>,
+    pub token: String,
+}
+
+// Metadata stored in settings.json (no token)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GitLabConfigMeta {
+    pub id: String,
+    pub name: String,
+    pub config_type: String,
+    pub host: Option<String>,
+}
+
+impl From<&GitLabConfig> for GitLabConfigMeta {
+    fn from(config: &GitLabConfig) -> Self {
+        GitLabConfigMeta {
+            id: config.id.clone(),
+            name: config.name.clone(),
+            config_type: config.config_type.clone(),
+            host: config.host.clone(),
+        }
+    }
+}
+
+// Full config sent from frontend (includes token)
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JiraConfig {
     pub host: String,
     pub email: Option<String>,
@@ -112,6 +142,8 @@ pub struct AppSettings {
     pub projects: Vec<ProjectConfig>,
     #[serde(default)]
     pub github_configs: Vec<GitHubConfigMeta>,
+    #[serde(default)]
+    pub gitlab_configs: Vec<GitLabConfigMeta>,
     #[serde(default)]
     pub jira_configs: Vec<JiraConfigMeta>,
     #[serde(default)]

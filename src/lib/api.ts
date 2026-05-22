@@ -49,6 +49,7 @@ export interface BackendAppSettings {
   onboarding_completed?: boolean;
   projects: BackendProjectConfig[];
   github_configs: unknown[];
+  gitlab_configs: unknown[];
   jira_configs: unknown[];
   global_shortcut?: string;
 }
@@ -219,6 +220,16 @@ export async function getGitHubRemoteInfo(repoPath: string, githubHost?: string)
   return invoke('get_github_remote_info', { repoPath, githubHost: githubHost ?? null });
 }
 
+export interface GitLabRemoteInfo {
+  owner: string;
+  repo: string;
+}
+
+export async function getGitLabRemoteInfo(repoPath: string, gitlabHost?: string): Promise<GitLabRemoteInfo | null> {
+  return invoke('get_gitlab_remote_info', { repoPath, gitlabHost: gitlabHost ?? null });
+}
+
+
 // ============ IDE/File Operations API ============
 
 export async function openIde(path: string, idePreset: string, customCommand?: string): Promise<void> {
@@ -316,6 +327,51 @@ export async function fetchPullRequests(
   branch: string
 ): Promise<PullRequestInfo[]> {
   return invoke('fetch_pull_requests', { owner, repo, branch });
+}
+
+// ============ GitLab Integration API ============
+
+// Full config (used when saving - token sent to backend)
+export interface GitLabConfig {
+  id: string;
+  name: string;
+  config_type: 'personal' | 'enterprise';
+  token: string;
+  host?: string;
+  username?: string;
+}
+
+// Metadata only (returned from backend - no token exposed)
+export interface GitLabConfigMeta {
+  id: string;
+  name: string;
+  config_type: 'personal' | 'enterprise';
+  host?: string;
+  username?: string;
+}
+
+export async function getGitLabConfig(): Promise<GitLabConfigMeta | null> {
+  return invoke('get_gitlab_config');
+}
+
+export async function setGitLabConfig(config: GitLabConfig): Promise<void> {
+  return invoke('set_gitlab_config', { config });
+}
+
+export async function removeGitLabConfig(): Promise<void> {
+  return invoke('remove_gitlab_config');
+}
+
+export async function validateGitLabToken(config: GitLabConfig): Promise<ValidateResult> {
+  return invoke('validate_gitlab_token', { config });
+}
+
+export async function fetchGitLabMergeRequests(
+  owner: string,
+  repo: string,
+  branch: string
+): Promise<PullRequestInfo[]> {
+  return invoke('fetch_gitlab_merge_requests', { owner, repo, branch });
 }
 
 // ============ Jira Integration API ============

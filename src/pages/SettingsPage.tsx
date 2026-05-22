@@ -6,6 +6,7 @@ import {
   Terminal,
   GitBranch,
   Github,
+  Gitlab,
   Ticket,
   ChevronRight,
 } from 'lucide-react';
@@ -15,6 +16,7 @@ import { AppearanceSettings } from './settings/AppearanceSettings';
 import { IDESettings } from './settings/IDESettings';
 import { WorktreeSettings } from './settings/WorktreeSettings';
 import { GitHubSettings } from './settings/GitHubSettings';
+import { GitLabSettings } from './settings/GitLabSettings';
 import { JiraSettings } from './settings/JiraSettings';
 import type { SettingsCategory } from '@/types';
 
@@ -28,6 +30,7 @@ const categories: { id: SettingsCategory; label: string; icon: React.ReactNode }
   { id: 'ide', label: 'IDE', icon: <Terminal size={14} /> },
   { id: 'worktree', label: 'Worktree', icon: <GitBranch size={14} /> },
   { id: 'github', label: 'GitHub', icon: <Github size={14} /> },
+  { id: 'gitlab', label: 'GitLab', icon: <Gitlab size={14} /> },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} /> },
 ];
 
@@ -46,6 +49,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         return <WorktreeSettings />;
       case 'github':
         return <GitHubSettings />;
+      case 'gitlab':
+        return <GitLabSettings />;
       case 'jira':
         return <JiraSettings />;
       default:

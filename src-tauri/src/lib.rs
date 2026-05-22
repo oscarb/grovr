@@ -21,12 +21,14 @@ use commands::projects::{add_project, get_projects, remove_project, reorder_proj
 use commands::git::{
     get_worktrees, create_worktree, create_worktree_existing_branch, remove_worktree,
     prune_worktrees, get_worktree_status, get_branches, get_current_branch, get_default_branch,
-    delete_branch, rename_branch, git_fetch, git_pull, get_github_remote_info, open_ide,
-    open_in_finder, open_terminal, copy_paths_to_worktree,
+    delete_branch, rename_branch, git_fetch, git_pull, get_github_remote_info, get_gitlab_remote_info,
+    open_ide, open_in_finder, open_terminal, copy_paths_to_worktree,
 };
 use commands::clipboard::read_clipboard_text;
 use commands::integrations::{
     get_github_config, set_github_config, remove_github_config, validate_github_token,
+    get_gitlab_config, set_gitlab_config, remove_gitlab_config, validate_gitlab_token,
+    fetch_gitlab_merge_requests,
     get_jira_config, set_jira_config, remove_jira_config, validate_jira_credentials,
     fetch_pull_requests, fetch_jira_issue,
 };
@@ -141,6 +143,7 @@ pub fn run() {
             git_pull,
             // Git - Remote
             get_github_remote_info,
+            get_gitlab_remote_info,
             // IDE/File
             open_ide,
             open_in_finder,
@@ -152,6 +155,12 @@ pub fn run() {
             remove_github_config,
             validate_github_token,
             fetch_pull_requests,
+            // Integrations - GitLab
+            get_gitlab_config,
+            set_gitlab_config,
+            remove_gitlab_config,
+            validate_gitlab_token,
+            fetch_gitlab_merge_requests,
             // Integrations - Jira
             get_jira_config,
             set_jira_config,
