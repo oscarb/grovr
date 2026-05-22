@@ -1015,6 +1015,44 @@ mod tests {
     }
 
     #[test]
+    fn test_get_github_remote_info() {
+        let (_temp_dir, repo_path) = setup_test_repo();
+
+        // 1. Test github.com HTTPS URL
+        Command::new("git")
+            .args(["remote", "add", "origin", "https://github.com/org-name/repo-name.git"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        let info = get_github_remote_info(repo_path.clone(), None)
+            .expect("Failed to parse URL")
+            .expect("Should return remote info");
+        assert_eq!(info.owner, "org-name");
+        assert_eq!(info.repo, "repo-name");
+
+        // Remove remote for next test
+        Command::new("git")
+            .args(["remote", "remove", "origin"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        // 2. Test Custom Enterprise Host
+        Command::new("git")
+            .args(["remote", "add", "origin", "git@github.example.com:enterprise-org/enterprise-repo.git"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        let info = get_github_remote_info(repo_path.clone(), Some("github.example.com".to_string()))
+            .expect("Failed to parse custom host URL")
+            .expect("Should return remote info for custom host");
+        assert_eq!(info.owner, "enterprise-org");
+        assert_eq!(info.repo, "enterprise-repo");
+    }
+
+    #[test]
     fn test_get_gitlab_remote_info() {
         let (_temp_dir, repo_path) = setup_test_repo();
 
