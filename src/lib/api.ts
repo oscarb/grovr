@@ -50,6 +50,7 @@ export interface BackendAppSettings {
   projects: BackendProjectConfig[];
   github_configs: unknown[];
   jira_configs: unknown[];
+  linear_configs: unknown[];
   global_shortcut?: string;
 }
 
@@ -362,4 +363,48 @@ export async function validateJiraCredentials(config: JiraConfig): Promise<Valid
 
 export async function fetchJiraIssue(issueKey: string): Promise<JiraIssueInfo | null> {
   return invoke('fetch_jira_issue', { issueKey });
+}
+
+// ============ Linear Integration API ============
+
+// Full config (used when saving - token sent to backend)
+export interface LinearConfig {
+  email: string;
+  token?: string;
+  display_name?: string;
+}
+
+// Metadata only (returned from backend - no token exposed)
+export interface LinearConfigMeta {
+  email: string;
+  display_name?: string;
+  has_token: boolean;
+}
+
+export interface LinearIssueInfo {
+  key: string;
+  title: string;
+  status: string;
+  status_type: string;
+  url: string;
+}
+
+export async function getLinearConfig(): Promise<LinearConfigMeta | null> {
+  return invoke('get_linear_config');
+}
+
+export async function setLinearConfig(config: LinearConfig): Promise<void> {
+  return invoke('set_linear_config', { config });
+}
+
+export async function removeLinearConfig(): Promise<void> {
+  return invoke('remove_linear_config');
+}
+
+export async function validateLinearToken(token: string): Promise<ValidateResult> {
+  return invoke('validate_linear_token', { token });
+}
+
+export async function fetchLinearIssue(issueKey: string): Promise<LinearIssueInfo | null> {
+  return invoke('fetch_linear_issue', { issueKey });
 }

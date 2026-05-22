@@ -8,6 +8,7 @@ import {
   Github,
   Ticket,
   ChevronRight,
+  Layers,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { GeneralSettings } from './settings/GeneralSettings';
@@ -16,6 +17,7 @@ import { IDESettings } from './settings/IDESettings';
 import { WorktreeSettings } from './settings/WorktreeSettings';
 import { GitHubSettings } from './settings/GitHubSettings';
 import { JiraSettings } from './settings/JiraSettings';
+import { LinearSettings } from './settings/LinearSettings';
 import type { SettingsCategory } from '@/types';
 
 interface SettingsPageProps {
@@ -29,6 +31,7 @@ const categories: { id: SettingsCategory; label: string; icon: React.ReactNode }
   { id: 'worktree', label: 'Worktree', icon: <GitBranch size={14} /> },
   { id: 'github', label: 'GitHub', icon: <Github size={14} /> },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} /> },
+  { id: 'linear', label: 'Linear', icon: <Layers size={14} /> },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
@@ -48,6 +51,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         return <GitHubSettings />;
       case 'jira':
         return <JiraSettings />;
+      case 'linear':
+        return <LinearSettings />;
       default:
         return null;
     }

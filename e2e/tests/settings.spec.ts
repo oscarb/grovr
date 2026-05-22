@@ -94,4 +94,54 @@ test.describe('Settings Page @settings @critical', () => {
     const projectSection = appPage.locator('.project-section, .project-header, .empty-state')
     await expect(projectSection.first()).toBeVisible()
   })
+
+  test('linear settings can be configured', async ({ mockedPage }) => {
+    // Navigate to settings
+    const settingsBtn = mockedPage.locator('[title="Settings"]')
+    await settingsBtn.click()
+
+    // Click Linear tab
+    const linearTab = mockedPage.getByText('Linear')
+    await expect(linearTab.first()).toBeVisible()
+    await linearTab.first().click()
+
+    // Key label should be visible
+    const keyLabel = mockedPage.getByText('Personal API Key')
+    await expect(keyLabel.first()).toBeVisible()
+
+    // Find input and fill it
+    const input = mockedPage.locator('input[type="password"]')
+    await expect(input).toBeVisible()
+    await input.fill('lin_api_test_token')
+
+    // Click Test button
+    const testBtn = mockedPage.getByRole('button', { name: 'Test' })
+    await expect(testBtn).toBeVisible()
+    await testBtn.click()
+
+    // Result message should show "Connected as Test User (test@grovr.local)"
+    const testResult = mockedPage.getByText('Connected as Test User (test@grovr.local)')
+    await expect(testResult).toBeVisible()
+
+    // Click Save button
+    const saveBtn = mockedPage.getByRole('button', { name: 'Save' })
+    await expect(saveBtn).toBeVisible()
+    await saveBtn.click()
+
+    // Verification info should display on card
+    const nameSpan = mockedPage.locator('.integration-name')
+    await expect(nameSpan).toHaveText('Test User')
+
+    const emailSpan = mockedPage.locator('.integration-token')
+    await expect(emailSpan).toHaveText('test@grovr.local')
+
+    const removeBtn = mockedPage.getByRole('button', { name: 'Remove' })
+    await expect(removeBtn).toBeVisible()
+
+    // Click Remove connection
+    await removeBtn.click()
+
+    // Form is shown again
+    await expect(keyLabel.first()).toBeVisible()
+  })
 })

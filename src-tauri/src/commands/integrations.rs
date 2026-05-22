@@ -1,6 +1,6 @@
 use crate::commands::settings::SettingsState;
 use crate::secure_store;
-use crate::types::{GitHubConfig, GitHubConfigMeta, JiraConfig, JiraConfigMeta};
+use crate::types::{GitHubConfig, GitHubConfigMeta, JiraConfig, JiraConfigMeta, LinearConfig, LinearConfigMeta};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -496,4 +496,287 @@ fn save_settings(app: &tauri::AppHandle, settings: &crate::types::AppSettings) -
     );
     store.save().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ============ Linear Commands ============
+
+#[tauri::command]
+pub fn get_linear_config(
+    state: State<SettingsState>,
+) -> Result<Option<LinearConfigMeta>, String> {
+    let settings = state.0.lock().map_err(|e| e.to_string())?;
+    let meta = settings.linear_configs.first().cloned();
+
+    if let Some(mut m) = meta {
+        let token_key = secure_store::linear_token_key(&m.email);
+        m.has_token = secure_store::get_secret(&token_key)
+            .ok()
+            .flatten()
+            .map(|t| !t.is_empty())
+            .unwrap_or(false);
+        Ok(Some(m))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn set_linear_config(
+    app: tauri::AppHandle,
+    state: State<SettingsState>,
+    config: LinearConfig,
+) -> Result<(), String> {
+    eprintln!("[Linear] set_linear_config called - email: {}, has_token: {}",
+        config.email, config.token.is_some());
+
+    if let Some(ref token) = config.token {
+        if !token.is_empty() {
+            let token_key = secure_store::linear_token_key(&config.email);
+            eprintln!("[Linear] Storing token for key: {}, token_len: {}", token_key, token.len());
+            match secure_store::store_secret(&token_key, token) {
+                Ok(()) => eprintln!("[Linear] Token stored successfully"),
+                Err(e) => {
+                    eprintln!("[Linear] Failed to store token: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    let mut settings = state.0.lock().map_err(|e| e.to_string())?;
+    let meta: LinearConfigMeta = (&config).into();
+    settings.linear_configs = vec![meta];
+    save_settings(&app, &settings)
+}
+
+#[tauri::command]
+pub fn remove_linear_config(
+    app: tauri::AppHandle,
+    state: State<SettingsState>,
+) -> Result<(), String> {
+    let mut settings = state.0.lock().map_err(|e| e.to_string())?;
+
+    for meta in &settings.linear_configs {
+        let token_key = secure_store::linear_token_key(&meta.email);
+        let _ = secure_store::delete_secret(&token_key);
+    }
+
+    settings.linear_configs.clear();
+    save_settings(&app, &settings)
+}
+
+#[tauri::command]
+pub async fn validate_linear_token(token: String) -> Result<ValidateResult, String> {
+    let client = Client::new();
+
+    let auth_header = if token.starts_with("lin_api_") {
+        token.clone()
+    } else if token.starts_with("Bearer ") {
+        token.clone()
+    } else {
+        format!("Bearer {}", token)
+    };
+
+    let query = serde_json::json!({
+        "query": "query { viewer { name email } }"
+    });
+
+    let response = client
+        .post("https://api.linear.app/graphql")
+        .header("Authorization", auth_header)
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Grovr-Desktop")
+        .json(&query)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if response.status().is_success() {
+        #[derive(Deserialize)]
+        struct LinearViewerResponse {
+            data: Option<LinearViewerData>,
+            errors: Option<Vec<LinearGraphQLError>>,
+        }
+        #[derive(Deserialize)]
+        struct LinearViewerData {
+            viewer: Option<LinearViewer>,
+        }
+        #[derive(Deserialize)]
+        struct LinearViewer {
+            name: String,
+            email: String,
+        }
+        #[derive(Deserialize)]
+        struct LinearGraphQLError {
+            message: String,
+        }
+
+        let body = response.text().await.map_err(|e| e.to_string())?;
+        let res: LinearViewerResponse = serde_json::from_str(&body)
+            .map_err(|e| format!("Failed to parse response: {}. Body: {}", e, body))?;
+
+        if let Some(errors) = res.errors {
+            if !errors.is_empty() {
+                return Ok(ValidateResult {
+                    valid: false,
+                    username: None,
+                    error: Some(errors[0].message.clone()),
+                });
+            }
+        }
+
+        if let Some(data) = res.data {
+            if let Some(viewer) = data.viewer {
+                return Ok(ValidateResult {
+                    valid: true,
+                    username: Some(format!("{} ({})", viewer.name, viewer.email)),
+                    error: None,
+                });
+            }
+        }
+
+        Ok(ValidateResult {
+            valid: false,
+            username: None,
+            error: Some("No viewer data returned".to_string()),
+        })
+    } else {
+        let status = response.status().as_u16();
+        let error = match status {
+            401 => "Invalid API key".to_string(),
+            403 => "Access denied".to_string(),
+            _ => format!("Linear API error: {}", status),
+        };
+        Ok(ValidateResult {
+            valid: false,
+            username: None,
+            error: Some(error),
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinearIssueInfo {
+    pub key: String,
+    pub title: String,
+    pub status: String,
+    pub status_type: String,
+    pub url: String,
+}
+
+#[tauri::command]
+pub async fn fetch_linear_issue(
+    state: State<'_, SettingsState>,
+    issue_key: String,
+) -> Result<Option<LinearIssueInfo>, String> {
+    eprintln!("[Linear] fetch_linear_issue called for: {}", issue_key);
+
+    let (auth_header, has_config) = {
+        let settings = state.0.lock().map_err(|e| e.to_string())?;
+        let meta = match settings.linear_configs.first() {
+            Some(m) => m,
+            None => {
+                eprintln!("[Linear] No config found");
+                return Ok(None);
+            }
+        };
+
+        let token_key = secure_store::linear_token_key(&meta.email);
+        let api_token = match secure_store::get_secret(&token_key) {
+            Ok(Some(t)) if !t.is_empty() => t,
+            _ => {
+                eprintln!("[Linear] No token found in secure storage");
+                return Ok(None);
+            }
+        };
+
+        let auth_header = if api_token.starts_with("lin_api_") {
+            api_token.clone()
+        } else if api_token.starts_with("Bearer ") {
+            api_token.clone()
+        } else {
+            format!("Bearer {}", api_token)
+        };
+
+        (auth_header, true)
+    };
+
+    if !has_config {
+        return Ok(None);
+    }
+
+    let client = Client::new();
+    let query = serde_json::json!({
+        "query": "query($id: String!) { issue(id: $id) { identifier title url state { name type } } }",
+        "variables": { "id": issue_key }
+    });
+
+    let response = client
+        .post("https://api.linear.app/graphql")
+        .header("Authorization", auth_header)
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Grovr-Desktop")
+        .json(&query)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        eprintln!("[Linear] API error ({}): {}", status, body);
+        return Err(format!("Linear API error ({}): {}", status, body));
+    }
+
+    #[derive(Deserialize)]
+    struct LinearIssueResponse {
+        data: Option<LinearIssueData>,
+        errors: Option<Vec<LinearGraphQLError>>,
+    }
+    #[derive(Deserialize)]
+    struct LinearIssueData {
+        issue: Option<LinearIssue>,
+    }
+    #[derive(Deserialize)]
+    struct LinearIssue {
+        identifier: String,
+        title: String,
+        url: String,
+        state: LinearIssueState,
+    }
+    #[derive(Deserialize)]
+    struct LinearIssueState {
+        name: String,
+        #[serde(rename = "type")]
+        state_type: String,
+    }
+    #[derive(Deserialize)]
+    struct LinearGraphQLError {
+        message: String,
+    }
+
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    let res: LinearIssueResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse response: {}. Body: {}", e, body))?;
+
+    if let Some(errors) = res.errors {
+        if !errors.is_empty() {
+            eprintln!("[Linear] GraphQL error: {}", errors[0].message);
+            return Err(errors[0].message.clone());
+        }
+    }
+
+    if let Some(data) = res.data {
+        if let Some(issue) = data.issue {
+            return Ok(Some(LinearIssueInfo {
+                key: issue.identifier,
+                title: issue.title,
+                status: issue.state.name,
+                status_type: issue.state.state_type,
+                url: issue.url,
+            }));
+        }
+    }
+
+    Ok(None)
 }

@@ -103,8 +103,29 @@ export interface JiraIssue {
   url: string;
 }
 
+// Linear types
+export interface LinearConfig {
+  email: string;
+  token?: string;
+  display_name?: string;
+}
+
+export interface LinearConfigMeta {
+  email: string;
+  display_name?: string;
+  has_token: boolean;
+}
+
+export interface LinearIssueInfo {
+  key: string;
+  title: string;
+  status: string;
+  status_type: string;
+  url: string;
+}
+
 // Navigation types
-export type SettingsCategory = 'general' | 'appearance' | 'ide' | 'worktree' | 'github' | 'jira';
+export type SettingsCategory = 'general' | 'appearance' | 'ide' | 'worktree' | 'github' | 'jira' | 'linear';
 
 // Deep link types
 export type DeepLinkRoute = 'create-worktree' | 'settings';

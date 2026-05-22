@@ -138,3 +138,7 @@ pub fn github_token_key(id: &str) -> String {
 pub fn jira_token_key(host: &str) -> String {
     format!("jira-token-{}", host)
 }
+
+pub fn linear_token_key(email: &str) -> String {
+    format!("linear-token-{}", email)
+}

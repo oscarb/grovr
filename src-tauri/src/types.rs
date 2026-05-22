@@ -78,6 +78,33 @@ impl From<&JiraConfig> for JiraConfigMeta {
     }
 }
 
+// Full config sent from frontend (includes token)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LinearConfig {
+    pub email: String,
+    pub token: Option<String>,
+    pub display_name: Option<String>,
+}
+
+// Metadata stored in settings.json (no token)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LinearConfigMeta {
+    pub email: String,
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub has_token: bool,
+}
+
+impl From<&LinearConfig> for LinearConfigMeta {
+    fn from(config: &LinearConfig) -> Self {
+        LinearConfigMeta {
+            email: config.email.clone(),
+            display_name: config.display_name.clone(),
+            has_token: false,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct WorktreeMemo {
     pub description: Option<String>,
@@ -114,6 +141,8 @@ pub struct AppSettings {
     pub github_configs: Vec<GitHubConfigMeta>,
     #[serde(default)]
     pub jira_configs: Vec<JiraConfigMeta>,
+    #[serde(default)]
+    pub linear_configs: Vec<LinearConfigMeta>,
     #[serde(default)]
     pub worktree_memos: HashMap<String, WorktreeMemo>,
     #[serde(default)]

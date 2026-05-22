@@ -29,6 +29,8 @@ use commands::integrations::{
     get_github_config, set_github_config, remove_github_config, validate_github_token,
     get_jira_config, set_jira_config, remove_jira_config, validate_jira_credentials,
     fetch_pull_requests, fetch_jira_issue,
+    get_linear_config, set_linear_config, remove_linear_config, validate_linear_token,
+    fetch_linear_issue,
 };
 
 fn setup_window_effects(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -158,6 +160,12 @@ pub fn run() {
             remove_jira_config,
             validate_jira_credentials,
             fetch_jira_issue,
+            // Integrations - Linear
+            get_linear_config,
+            set_linear_config,
+            remove_linear_config,
+            validate_linear_token,
+            fetch_linear_issue,
             // Clipboard
             read_clipboard_text,
         ])

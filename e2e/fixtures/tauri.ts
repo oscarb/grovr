@@ -50,6 +50,7 @@ export const mockData = {
     ],
     github_configs: [],
     jira_configs: [],
+    linear_configs: [],
   },
   worktrees: [
     { path: '/tmp/test-project/repo', branch: 'main', is_main: true, is_bare: false },
@@ -84,13 +85,19 @@ function getTauriMockScript(data: typeof mockData) {
             return null;
           case 'get_jira_config':
             return null;
+          case 'get_linear_config':
+            return null;
           case 'get_worktree_memo':
             return { description: null, issue_number: null };
+          case 'validate_linear_token':
+            return { valid: true, username: 'Test User (test@grovr.local)', error: null };
           case 'set_theme':
           case 'set_ide':
           case 'set_skip_open_ide_confirm':
           case 'remove_worktree':
           case 'create_worktree':
+          case 'set_linear_config':
+          case 'remove_linear_config':
             return null;
           default:
             console.warn('[Tauri Mock] Unhandled command:', cmd);
