@@ -479,6 +479,78 @@ pub fn get_github_remote_info(repo_path: String, github_host: Option<String>) ->
     Ok(parsed)
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GitLabRemoteInfo {
+    pub owner: String,
+    pub repo: String,
+}
+
+#[tauri::command]
+pub fn get_gitlab_remote_info(repo_path: String, gitlab_host: Option<String>) -> Result<Option<GitLabRemoteInfo>, String> {
+    let output = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to run git: {}", e))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    let host_domain = gitlab_host
+        .as_deref()
+        .map(|h| {
+            h.strip_prefix("https://")
+                .or_else(|| h.strip_prefix("http://"))
+                .unwrap_or(h)
+                .trim_end_matches('/')
+        })
+        .filter(|h| !h.is_empty());
+
+    let mut hosts = Vec::new();
+    if let Some(h) = host_domain {
+        hosts.push(h);
+    }
+    if !hosts.contains(&"gitlab.com") {
+        hosts.push("gitlab.com");
+    }
+
+    // Parse SSH (git@{host}:owner/repo.git) or HTTPS (https://{host}/owner/repo[.git])
+    let parsed = hosts.iter().find_map(|host| {
+        url.split_once(host).and_then(|(_, post_host)| {
+            let mut path = post_host;
+            if path.starts_with(':') {
+                path = &path[1..];
+            }
+            if path.starts_with('/') {
+                path = &path[1..];
+            }
+            // Strip port if present in ssh://git@host:port/path
+            if let Some(slash_idx) = path.find('/') {
+                let potential_port = &path[..slash_idx];
+                if potential_port.chars().all(|c| c.is_ascii_digit()) {
+                    path = &path[slash_idx + 1..];
+                }
+            }
+
+            let path = path.strip_suffix(".git").unwrap_or(path);
+            let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() >= 2 {
+                let owner = parts[..parts.len() - 1].join("/");
+                let repo = parts[parts.len() - 1].to_string();
+                Some(GitLabRemoteInfo { owner, repo })
+            } else {
+                None
+            }
+        })
+    });
+
+    Ok(parsed)
+}
+
+
 // ============ IDE/File Operations ============
 
 #[tauri::command]
@@ -710,8 +782,8 @@ mod tests {
         assert!(worktrees[0].is_main);
     }
 
-    #[test]
-    fn test_create_and_get_worktree() {
+    #[tokio::test]
+    async fn test_create_and_get_worktree() {
         let (temp_dir, repo_path) = setup_test_repo();
         let worktree_path = temp_dir.path().join("worktrees/feature-test");
 
@@ -722,6 +794,7 @@ mod tests {
             "feature-test".to_string(),
             "main".to_string(),
         )
+        .await
         .expect("Failed to create worktree");
 
         // Verify worktree exists
@@ -733,8 +806,8 @@ mod tests {
         assert!(!feature_wt.unwrap().is_main);
     }
 
-    #[test]
-    fn test_create_worktree_existing_branch() {
+    #[tokio::test]
+    async fn test_create_worktree_existing_branch() {
         let (temp_dir, repo_path) = setup_test_repo();
 
         // Create a branch first
@@ -752,6 +825,7 @@ mod tests {
             worktree_path.to_string_lossy().to_string(),
             "existing-branch".to_string(),
         )
+        .await
         .expect("Failed to create worktree from existing branch");
 
         // Verify
@@ -762,8 +836,8 @@ mod tests {
         assert!(existing_wt.is_some());
     }
 
-    #[test]
-    fn test_remove_worktree() {
+    #[tokio::test]
+    async fn test_remove_worktree() {
         let (temp_dir, repo_path) = setup_test_repo();
         let worktree_path = temp_dir.path().join("worktrees/to-delete");
 
@@ -774,6 +848,7 @@ mod tests {
             "to-delete".to_string(),
             "main".to_string(),
         )
+        .await
         .expect("Failed to create worktree");
 
         // Verify it exists
@@ -788,6 +863,7 @@ mod tests {
             false,
             None,
         )
+        .await
         .expect("Failed to remove worktree");
 
         // Verify it's gone
@@ -795,8 +871,8 @@ mod tests {
         assert_eq!(worktrees.len(), 1);
     }
 
-    #[test]
-    fn test_remove_worktree_force() {
+    #[tokio::test]
+    async fn test_remove_worktree_force() {
         let (temp_dir, repo_path) = setup_test_repo();
         let worktree_path = temp_dir.path().join("worktrees/dirty-wt");
 
@@ -807,6 +883,7 @@ mod tests {
             "dirty-wt".to_string(),
             "main".to_string(),
         )
+        .await
         .expect("Failed to create worktree");
 
         // Make it dirty (uncommitted changes)
@@ -819,7 +896,8 @@ mod tests {
             false,
             false,
             None,
-        );
+        )
+        .await;
         assert!(result.is_err());
 
         // Remove with force - should succeed
@@ -830,6 +908,7 @@ mod tests {
             false,
             None,
         )
+        .await
         .expect("Failed to force remove worktree");
 
         // Verify it's gone
@@ -933,5 +1012,81 @@ mod tests {
         // Verify it's gone
         let branches = get_branches(repo_path, false).expect("Failed to get branches");
         assert!(!branches.iter().any(|b| b.name == "to-delete"));
+    }
+
+    #[test]
+    fn test_get_github_remote_info() {
+        let (_temp_dir, repo_path) = setup_test_repo();
+
+        // 1. Test github.com HTTPS URL
+        Command::new("git")
+            .args(["remote", "add", "origin", "https://github.com/org-name/repo-name.git"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        let info = get_github_remote_info(repo_path.clone(), None)
+            .expect("Failed to parse URL")
+            .expect("Should return remote info");
+        assert_eq!(info.owner, "org-name");
+        assert_eq!(info.repo, "repo-name");
+
+        // Remove remote for next test
+        Command::new("git")
+            .args(["remote", "remove", "origin"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        // 2. Test Custom Enterprise Host
+        Command::new("git")
+            .args(["remote", "add", "origin", "git@github.example.com:enterprise-org/enterprise-repo.git"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        let info = get_github_remote_info(repo_path.clone(), Some("github.example.com".to_string()))
+            .expect("Failed to parse custom host URL")
+            .expect("Should return remote info for custom host");
+        assert_eq!(info.owner, "enterprise-org");
+        assert_eq!(info.repo, "enterprise-repo");
+    }
+
+    #[test]
+    fn test_get_gitlab_remote_info() {
+        let (_temp_dir, repo_path) = setup_test_repo();
+
+        // 1. Test gitlab.com HTTPS URL
+        Command::new("git")
+            .args(["remote", "add", "origin", "https://gitlab.com/org/sub/repo.git"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        let info = get_gitlab_remote_info(repo_path.clone(), None)
+            .expect("Failed to parse URL")
+            .expect("Should return remote info");
+        assert_eq!(info.owner, "org/sub");
+        assert_eq!(info.repo, "repo");
+
+        // Remove remote for next test
+        Command::new("git")
+            .args(["remote", "remove", "origin"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        // 2. Test Custom Enterprise Host with custom SSH port and nested subgroups
+        Command::new("git")
+            .args(["remote", "add", "origin", "ssh://git@gitlab.example.com:2222/org-name/sub-group/another-sub/my-project.git"])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        let info = get_gitlab_remote_info(repo_path.clone(), Some("gitlab.example.com".to_string()))
+            .expect("Failed to parse custom host URL")
+            .expect("Should return remote info for custom host");
+        assert_eq!(info.owner, "org-name/sub-group/another-sub");
+        assert_eq!(info.repo, "my-project");
     }
 }

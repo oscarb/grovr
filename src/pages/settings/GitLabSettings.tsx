@@ -1,0 +1,296 @@
+import { useState, useEffect } from 'react';
+import { ExternalLink, Check, Loader2 } from 'lucide-react';
+import * as api from '@/lib/api';
+import type { GitLabConfig, GitLabConfigMeta } from '@/lib/api';
+
+export function GitLabSettings() {
+  const [config, setConfig] = useState<GitLabConfigMeta | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ valid: boolean; message: string } | null>(null);
+  const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+
+  // Form state
+  const [configType, setConfigType] = useState<'personal' | 'enterprise'>('personal');
+  const [token, setToken] = useState('');
+  const [host, setHost] = useState('');
+
+  // Extract hostname from full URL
+  const extractHost = (input: string): string => {
+    const trimmed = input.trim();
+    if (!trimmed) return trimmed;
+    try {
+      const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+      return url.hostname;
+    } catch {
+      return trimmed;
+    }
+  };
+
+  // Get token creation URL based on host
+  const getTokenUrl = (): string => {
+    const baseHost = configType === 'enterprise' && host.trim()
+      ? host.trim()
+      : 'gitlab.com';
+    const cleanHost = baseHost.replace(/^https?:\/\//, '');
+    return `https://${cleanHost}/-/profile/personal_access_tokens?name=Grovr&scopes=read_api,api`;
+  };
+
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  const loadConfig = async () => {
+    try {
+      const result = await api.getGitLabConfig();
+      setConfig(result);
+    } catch (err) {
+      console.error('Failed to load GitLab config:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setError('');
+    setTestResult(null);
+    setTesting(true);
+
+    try {
+      const testConfig: GitLabConfig = {
+        id: crypto.randomUUID(),
+        name: configType === 'enterprise' ? 'GitLab Enterprise' : 'GitLab',
+        config_type: configType,
+        token: token.trim(),
+        host: configType === 'enterprise' ? host.trim() : undefined,
+      };
+
+      const result = await api.validateGitLabToken(testConfig);
+
+      if (result.valid) {
+        setTestResult({ valid: true, message: `Connected as ${result.username}` });
+      } else {
+        setTestResult({ valid: false, message: result.error || 'Invalid token' });
+      }
+    } catch (err) {
+      setTestResult({ valid: false, message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setError('');
+    setSaving(true);
+
+    try {
+      const configId = config?.id || crypto.randomUUID();
+      const newConfig: GitLabConfig = {
+        id: configId,
+        name: configType === 'enterprise' ? 'GitLab Enterprise' : 'GitLab',
+        config_type: configType,
+        token: token.trim(),
+        host: configType === 'enterprise' ? host.trim() : undefined,
+      };
+
+      // Validate first
+      const result = await api.validateGitLabToken(newConfig);
+      if (!result.valid) {
+        setError(result.error || 'Invalid token');
+        setSaving(false);
+        return;
+      }
+
+      newConfig.username = result.username;
+      newConfig.name = result.username || newConfig.name;
+      await api.setGitLabConfig(newConfig);
+      setConfig(newConfig);
+      setShowForm(false);
+      resetForm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    try {
+      await api.removeGitLabConfig();
+      setConfig(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const resetForm = () => {
+    setConfigType('personal');
+    setToken('');
+    setHost('');
+    setError('');
+    setTestResult(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="settings-section">
+        <div className="settings-group first">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs">
+            <Loader2 size={12} className="animate-spin" />
+            Loading...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-section">
+      <div className="settings-group first">
+        {/* Existing connection */}
+        {config && !showForm && (
+          <div className="integration-card">
+            <div className="integration-info flex-1 min-w-0">
+              <span className="integration-name">
+                {config.username || (config.config_type === 'enterprise' ? 'Enterprise' : 'Personal')}
+              </span>
+              <span className="integration-token">
+                {config.config_type === 'enterprise' ? config.host : 'gitlab.com'}
+              </span>
+            </div>
+            <div className="integration-status connected">
+              <Check size={10} />
+              Connected
+            </div>
+            <button
+              className="btn-secondary-sm btn-danger-text"
+              onClick={handleRemove}
+            >
+              Remove
+            </button>
+          </div>
+        )}
+
+        {/* Add/Edit form */}
+        {(showForm || !config) && (
+          <div className="space-y-3">
+            {/* Type selector - right aligned */}
+            <div className="settings-item">
+              <div className="settings-item-info">
+                <label className="settings-label">Account Type</label>
+              </div>
+              <select
+                className="settings-select"
+                value={configType}
+                onChange={(e) => setConfigType(e.target.value as 'personal' | 'enterprise')}
+              >
+                <option value="personal">Personal (gitlab.com)</option>
+                <option value="enterprise">GitLab Self-Hosted / Enterprise</option>
+              </select>
+            </div>
+
+            {/* Enterprise host */}
+            {configType === 'enterprise' && (
+              <div className="settings-item-full">
+                <label className="settings-label">Host URL / Domain</label>
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const pasted = e.clipboardData.getData('text');
+                    const parsedHost = extractHost(pasted);
+                    setHost(parsedHost);
+                  }}
+                  placeholder="gitlab.company.com"
+                />
+              </div>
+            )}
+
+            {/* Token */}
+            <div className="settings-item-full">
+              <label className="settings-label">Personal Access Token</label>
+              <input
+                type="password"
+                className="settings-input font-mono"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+              />
+              <div className="flex justify-end mt-1">
+                <a
+                  href={getTokenUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="integration-help-link"
+                >
+                  Create Personal Access Token
+                  <ExternalLink size={10} />
+                </a>
+              </div>
+            </div>
+
+            {/* Test result */}
+            {testResult && (
+              <div className={`text-xs ${testResult.valid ? 'text-green-500' : 'text-red-500'}`}>
+                {testResult.message}
+              </div>
+            )}
+
+            {error && <div className="text-xs text-red-500">{error}</div>}
+
+            <div className="flex gap-2">
+              {config && (
+                <button
+                  type="button"
+                  className="btn-secondary-sm"
+                  onClick={() => {
+                    setShowForm(false);
+                    resetForm();
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-secondary-sm"
+                onClick={handleTest}
+                disabled={!token.trim() || (configType === 'enterprise' && !host.trim()) || testing}
+              >
+                {testing ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  'Test'
+                )}
+              </button>
+              <button
+                type="button"
+                className="btn-primary-sm"
+                onClick={handleSave}
+                disabled={!token.trim() || (configType === 'enterprise' && !host.trim()) || saving}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save'
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}

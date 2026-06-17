@@ -135,6 +135,10 @@ pub fn github_token_key(id: &str) -> String {
     format!("github-token-{}", id)
 }
 
+pub fn gitlab_token_key(id: &str) -> String {
+    format!("gitlab-token-{}", id)
+}
+
 pub fn jira_token_key(host: &str) -> String {
     format!("jira-token-{}", host)
 }

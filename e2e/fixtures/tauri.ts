@@ -49,6 +49,7 @@ export const mockData = {
       { name: 'test-project', repo_path: '/tmp/test-project/repo' },
     ],
     github_configs: [],
+    gitlab_configs: [],
     jira_configs: [],
   },
   worktrees: [
@@ -82,6 +83,19 @@ function getTauriMockScript(data: typeof mockData) {
             return mockData.branches;
           case 'get_github_config':
             return null;
+          case 'get_gitlab_config':
+            return mockData.settings.gitlab_configs[0] || null;
+          case 'set_gitlab_config':
+            mockData.settings.gitlab_configs = [args.config];
+            return null;
+          case 'remove_gitlab_config':
+            mockData.settings.gitlab_configs = [];
+            return null;
+          case 'validate_gitlab_token':
+            if (args.config.token === 'invalid-token') {
+              return { valid: false, error: 'Invalid token' };
+            }
+            return { valid: true, username: 'mocked-gitlab-user' };
           case 'get_jira_config':
             return null;
           case 'get_worktree_memo':
@@ -91,6 +105,8 @@ function getTauriMockScript(data: typeof mockData) {
           case 'set_skip_open_ide_confirm':
           case 'remove_worktree':
           case 'create_worktree':
+          case 'fetch_gitlab_merge_requests':
+          case 'get_gitlab_remote_info':
             return null;
           default:
             console.warn('[Tauri Mock] Unhandled command:', cmd);

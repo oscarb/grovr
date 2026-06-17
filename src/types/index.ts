@@ -76,6 +76,22 @@ export interface PullRequestInfo {
   updatedAt: string;
 }
 
+// GitLab types
+export interface GitLabConfig {
+  id: string;
+  name: string;
+  type: 'community' | 'enterprise';
+  host?: string;
+  token: string;
+}
+
+export interface GitLabConfigMeta {
+  id: string;
+  name: string;
+  type: 'community' | 'enterprise';
+  host?: string;
+}
+
 // Jira types
 export interface JiraConfig {
   id: string;
@@ -104,7 +120,7 @@ export interface JiraIssue {
 }
 
 // Navigation types
-export type SettingsCategory = 'general' | 'appearance' | 'ide' | 'worktree' | 'github' | 'jira';
+export type SettingsCategory = 'general' | 'appearance' | 'ide' | 'worktree' | 'github' | 'gitlab' | 'jira';
 
 // Deep link types
 export type DeepLinkRoute = 'create-worktree' | 'settings';

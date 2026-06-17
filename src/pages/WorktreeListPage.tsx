@@ -99,6 +99,7 @@ export function WorktreeListPage({
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<api.BackendAppSettings | null>(null);
   const [hasGitHub, setHasGitHub] = useState(false);
+  const [hasGitLab, setHasGitLab] = useState(false);
   const [hasJira, setHasJira] = useState(false);
   const [jiraHost, setJiraHost] = useState<string | null>(null);
 
@@ -320,10 +321,12 @@ export function WorktreeListPage({
   const loadIntegrationData = useCallback(async (
     projectsWithWorktrees: ProjectWithIntegrations[],
     githubConfig: { id?: string; host?: string } | null,
+    gitlabConfig: { id?: string; host?: string } | null,
     jiraConfig: { host?: string; email?: string } | null
   ) => {
     for (const project of projectsWithWorktrees) {
       const remoteInfo = await api.getGitHubRemoteInfo(project.repoPath, githubConfig?.host).catch(() => null);
+      const gitlabRemoteInfo = await api.getGitLabRemoteInfo(project.repoPath, gitlabConfig?.host).catch(() => null);
 
       for (const worktree of project.worktrees) {
         // Load Jira info if configured and issue number exists
@@ -353,6 +356,19 @@ export function WorktreeListPage({
               console.error('Failed to fetch PRs:', worktree.branch, err);
             });
         }
+
+        // Load MR info if GitLab configured
+        if (gitlabConfig?.id && gitlabRemoteInfo && !worktree.isMain) {
+          api.fetchGitLabMergeRequests(gitlabRemoteInfo.owner, gitlabRemoteInfo.repo, worktree.branch)
+            .then(mrs => {
+              if (mrs.length > 0) {
+                updateWorktree(project.repoPath, worktree.path, { prInfo: mrs[0] });
+              }
+            })
+            .catch(err => {
+              console.error('Failed to fetch GitLab MRs:', worktree.branch, err);
+            });
+        }
       }
     }
   }, [updateWorktree]);
@@ -360,15 +376,17 @@ export function WorktreeListPage({
   const loadData = async () => {
     try {
       setLoading(true);
-      const [settingsData, projectsData, githubConfig, jiraConfig] = await Promise.all([
+      const [settingsData, projectsData, githubConfig, gitlabConfig, jiraConfig] = await Promise.all([
         api.getSettings(),
         api.getProjects(),
         api.getGitHubConfig().catch(() => null),
+        api.getGitLabConfig().catch(() => null),
         api.getJiraConfig().catch(() => null),
       ]);
       setSettings(settingsData);
       // Check if integrations are configured (by metadata presence, not token)
       setHasGitHub(!!githubConfig?.id);
+      setHasGitLab(!!gitlabConfig?.id);
       setHasJira(!!jiraConfig?.host);
       setJiraHost(jiraConfig?.host || null);
 
@@ -378,6 +396,7 @@ export function WorktreeListPage({
           try {
             const worktrees = await api.getWorktrees(p.repo_path);
             const remoteInfo = await api.getGitHubRemoteInfo(p.repo_path, githubConfig?.host).catch(() => null);
+            const gitlabRemoteInfo = await api.getGitLabRemoteInfo(p.repo_path, gitlabConfig?.host).catch(() => null);
 
             // Load memos only (local data)
             const worktreesWithMemos: WorktreeWithIntegrations[] = await Promise.all(
@@ -422,6 +441,18 @@ export function WorktreeListPage({
                   }
                 }
 
+                // Load MR info if GitLab configured
+                if (gitlabConfig?.id && gitlabRemoteInfo && !w.is_main) {
+                  try {
+                    const mrs = await api.fetchGitLabMergeRequests(gitlabRemoteInfo.owner, gitlabRemoteInfo.repo, w.branch);
+                    if (mrs.length > 0) {
+                      result.prInfo = mrs[0];
+                    }
+                  } catch {
+                    // Ignore - MR fetch failed
+                  }
+                }
+
                 return result;
               })
             );
@@ -455,7 +486,7 @@ export function WorktreeListPage({
       setLoading(false);
 
       // Load integration data in background (non-blocking)
-      loadIntegrationData(projectsWithWorktrees, githubConfig, jiraConfig);
+      loadIntegrationData(projectsWithWorktrees, githubConfig, gitlabConfig, jiraConfig);
     } catch (err) {
       console.error('Failed to load data:', err);
       setLoading(false);
@@ -610,7 +641,7 @@ export function WorktreeListPage({
   const allWorktrees = projects.flatMap((p) => p.worktrees);
   const hasAnyDescription = allWorktrees.some((w) => w.description);
   // Only show integration columns if there's actual fetched data
-  const hasAnyGitHub = hasGitHub && allWorktrees.some((w) => w.prInfo);
+  const hasAnyGitHub = (hasGitHub || hasGitLab) && allWorktrees.some((w) => w.prInfo);
   const hasAnyJira = hasJira && allWorktrees.some((w) => w.jiraInfo || w.issueNumber);
 
   return (

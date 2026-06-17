@@ -1,6 +1,6 @@
 use crate::commands::settings::SettingsState;
 use crate::secure_store;
-use crate::types::{GitHubConfig, GitHubConfigMeta, JiraConfig, JiraConfigMeta};
+use crate::types::{GitHubConfig, GitHubConfigMeta, GitLabConfig, GitLabConfigMeta, JiraConfig, JiraConfigMeta};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -118,6 +118,104 @@ pub async fn validate_github_token(config: GitHubConfig) -> Result<ValidateResul
             403 => "Token has insufficient permissions".to_string(),
             404 => "GitHub API not found (check enterprise URL)".to_string(),
             _ => format!("GitHub API error: {}", status),
+        };
+        Ok(ValidateResult {
+            valid: false,
+            username: None,
+            error: Some(error),
+        })
+    }
+}
+
+// ============ GitLab Commands ============
+
+#[tauri::command]
+pub fn get_gitlab_config(
+    state: State<SettingsState>,
+) -> Result<Option<GitLabConfigMeta>, String> {
+    let settings = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(settings.gitlab_configs.first().cloned())
+}
+
+#[tauri::command]
+pub fn set_gitlab_config(
+    app: tauri::AppHandle,
+    state: State<SettingsState>,
+    config: GitLabConfig,
+) -> Result<(), String> {
+    // Store token in secure storage
+    let token_key = secure_store::gitlab_token_key(&config.id);
+    secure_store::store_secret(&token_key, &config.token)?;
+
+    // Store metadata (without token) in settings
+    let mut settings = state.0.lock().map_err(|e| e.to_string())?;
+    let meta: GitLabConfigMeta = (&config).into();
+    settings.gitlab_configs = vec![meta];
+    save_settings(&app, &settings)
+}
+
+#[tauri::command]
+pub fn remove_gitlab_config(
+    app: tauri::AppHandle,
+    state: State<SettingsState>,
+) -> Result<(), String> {
+    let mut settings = state.0.lock().map_err(|e| e.to_string())?;
+
+    // Delete token from secure storage
+    for meta in &settings.gitlab_configs {
+        let token_key = secure_store::gitlab_token_key(&meta.id);
+        let _ = secure_store::delete_secret(&token_key); // Ignore errors
+    }
+
+    settings.gitlab_configs.clear();
+    save_settings(&app, &settings)
+}
+
+fn get_gitlab_base_url(config_type: &str, host: Option<&str>) -> String {
+    let host_str = host.unwrap_or("gitlab.com");
+    if config_type == "enterprise" {
+        if host_str.starts_with("http://") || host_str.starts_with("https://") {
+            host_str.to_string()
+        } else {
+            format!("https://{}", host_str)
+        }
+    } else {
+        "https://gitlab.com".to_string()
+    }
+}
+
+#[tauri::command]
+pub async fn validate_gitlab_token(config: GitLabConfig) -> Result<ValidateResult, String> {
+    let client = Client::new();
+
+    let base_url = get_gitlab_base_url(&config.config_type, config.host.as_deref());
+
+    let response = client
+        .get(format!("{}/api/v4/user", base_url))
+        .header("PRIVATE-TOKEN", config.token.trim())
+        .header("User-Agent", "Grovr-Desktop")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if response.status().is_success() {
+        #[derive(Deserialize)]
+        struct GitLabUser {
+            username: String,
+        }
+        let user: GitLabUser = response.json().await.map_err(|e| e.to_string())?;
+        Ok(ValidateResult {
+            valid: true,
+            username: Some(user.username),
+            error: None,
+        })
+    } else {
+        let status = response.status().as_u16();
+        let error = match status {
+            401 => "Invalid token".to_string(),
+            403 => "Token has insufficient permissions".to_string(),
+            404 => "GitLab API not found (check enterprise URL)".to_string(),
+            _ => format!("GitLab API error: {}", status),
         };
         Ok(ValidateResult {
             valid: false,
@@ -349,6 +447,95 @@ pub async fn fetch_pull_requests(
     }).collect())
 }
 
+#[tauri::command]
+pub async fn fetch_gitlab_merge_requests(
+    _app: tauri::AppHandle,
+    state: State<'_, SettingsState>,
+    owner: String,
+    repo: String,
+    branch: String,
+) -> Result<Vec<PullRequestInfo>, String> {
+    // Extract config data before await to avoid holding MutexGuard across await
+    let (base_url, token) = {
+        let settings = state.0.lock().map_err(|e| e.to_string())?;
+        let meta = settings.gitlab_configs.first()
+            .ok_or("No GitLab config found")?;
+
+        let base_url = get_gitlab_base_url(&meta.config_type, meta.host.as_deref());
+
+        // Get token from secure storage
+        let token_key = secure_store::gitlab_token_key(&meta.id);
+        let token = secure_store::get_secret(&token_key)?.unwrap_or_default();
+        if token.is_empty() {
+            eprintln!("[GitLab] Warning: No token found in secure storage for key: {}", token_key);
+        }
+        (base_url, token)
+    };
+
+    // The project path is owner/repo. URL encode it.
+    let project_path = format!("{}/{}", owner, repo);
+    let encoded_project_path = project_path.replace("/", "%2F");
+
+    let url = format!("{}/api/v4/projects/{}/merge_requests", base_url, encoded_project_path);
+    eprintln!("[GitLab] Fetching MRs: {} branch={}", url, branch);
+
+    let client = Client::new();
+    let response = client
+        .get(&url)
+        .query(&[("source_branch", branch.clone()), ("state", "all".to_string())])
+        .header("PRIVATE-TOKEN", token)
+        .header("User-Agent", "Grovr-Desktop")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        eprintln!("[GitLab] API error ({}): {}", status, body);
+        return Err(format!("GitLab API error ({}): {}", status, body));
+    }
+
+    #[derive(Deserialize)]
+    struct GitLabMR {
+        iid: i32,
+        title: String,
+        state: String,
+        web_url: String,
+        draft: Option<bool>,
+        work_in_progress: Option<bool>,
+    }
+
+    let mrs: Vec<GitLabMR> = response.json().await.map_err(|e| e.to_string())?;
+
+    Ok(mrs.into_iter().map(|mr| {
+        let is_draft = mr.draft.unwrap_or(false)
+            || mr.work_in_progress.unwrap_or(false)
+            || mr.title.starts_with("Draft:")
+            || mr.title.starts_with("WIP:")
+            || mr.title.starts_with("[Draft]")
+            || mr.title.starts_with("(Draft)");
+
+        let mapped_state = match mr.state.as_str() {
+            "opened" => "open".to_string(),
+            "merged" => "merged".to_string(),
+            "closed" | "locked" => "closed".to_string(),
+            other => other.to_string(),
+        };
+
+        PullRequestInfo {
+            number: mr.iid,
+            title: mr.title,
+            state: mapped_state.clone(),
+            merged: mr.state == "merged",
+            draft: is_draft,
+            url: mr.web_url,
+            review_decision: None,
+            checks_status: None,
+        }
+    }).collect())
+}
+
 // ============ Jira Data Fetching ============
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -496,4 +683,27 @@ fn save_settings(app: &tauri::AppHandle, settings: &crate::types::AppSettings) -
     );
     store.save().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_gitlab_base_url() {
+        // Personal config type
+        assert_eq!(get_gitlab_base_url("personal", None), "https://gitlab.com");
+        assert_eq!(get_gitlab_base_url("personal", Some("gitlab.example.com")), "https://gitlab.com");
+
+        // Enterprise config type without HTTP protocol prefix
+        assert_eq!(get_gitlab_base_url("enterprise", Some("gitlab.example.com")), "https://gitlab.example.com");
+        assert_eq!(get_gitlab_base_url("enterprise", Some("my-gitlab.org:8080")), "https://my-gitlab.org:8080");
+
+        // Enterprise config type with HTTP protocol prefix
+        assert_eq!(get_gitlab_base_url("enterprise", Some("https://gitlab.example.com")), "https://gitlab.example.com");
+        assert_eq!(get_gitlab_base_url("enterprise", Some("http://gitlab.example.com")), "http://gitlab.example.com");
+
+        // Enterprise config type with None host (fallback)
+        assert_eq!(get_gitlab_base_url("enterprise", None), "https://gitlab.com");
+    }
 }
